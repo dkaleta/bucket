@@ -1,17 +1,13 @@
-//
-//  germanApp.swift
-//  german
-//
-//  Created by Damian Kaleta on 9/3/26.
-//
-
 import SwiftUI
 
 @main
 struct germanApp: App {
     var body: some Scene {
-        WindowGroup {
+        Window("German Practice", id: "practice") {
             ContentView()
         }
+        .defaultSize(width: 780, height: 720)
+
+        Settings { SettingsView() }
     }
 }
