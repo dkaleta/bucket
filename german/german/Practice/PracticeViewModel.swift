@@ -22,7 +22,10 @@ final class PracticeViewModel {
     var sentence: PracticeSentence { Sentences.all[index] }
     var progress: String { "\(index + 1) / \(Sentences.all.count)" }
     var isLast: Bool { index == Sentences.all.count - 1 }
-    var canCheck: Bool { phase == .ready && !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var canCheck: Bool {
+        (phase == .idle || phase == .ready)
+            && !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     init(credentials: any CredentialStoring, grader: any Grading,
          defaults: UserDefaults = .standard, makeTranscriber: @escaping () -> any Transcribing) {
@@ -106,15 +109,19 @@ final class PracticeViewModel {
         }
     }
 
-    func next() {
-        guard phase == .graded else { return }
+    func retry() {
         cancelWork()
-        index = isLast ? 0 : index + 1
-        defaults.set(index, forKey: "practice.sentenceIndex")
         answer = ""
         grade = nil
         errorMessage = nil
         phase = .idle
+    }
+
+    func next() {
+        guard phase == .graded else { return }
+        index = isLast ? 0 : index + 1
+        defaults.set(index, forKey: "practice.sentenceIndex")
+        retry()
     }
 
     func leave() {

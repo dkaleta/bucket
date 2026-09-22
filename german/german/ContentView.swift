@@ -5,16 +5,6 @@ struct ContentView: View {
         credentials: KeychainStore(), grader: OpenAIGrader(),
         makeTranscriber: { ElevenLabsTranscriber() }
     )
-    @State private var promptID = UUID()
-
-    private var prompt: CanvasDocument {
-        CanvasDocument(elements: [CanvasTextElement(
-            id: promptID, text: model.sentence.english,
-            center: CanvasPosition(x: 0.5, y: 0.5),
-            width: CanvasTextWidth(maximumPoints: 620, canvasFraction: 0.95),
-            style: CanvasTextStyle(fontSize: 32)
-        )])
-    }
 
     var body: some View {
         ScrollView {
@@ -28,15 +18,15 @@ struct ContentView: View {
                 .padding(.bottom, 16)
 
                 VStack(spacing: 0) {
-                    Text("SAY IT IN GERMAN")
+                    Text("TRANSLATE INTO GERMAN")
                         .font(.caption.weight(.semibold))
                         .tracking(2)
                         .foregroundStyle(.secondary)
-                    CanvasDocumentView(document: prompt)
-                        .frame(height: 150)
+                    SentencePromptView(sentence: model.sentence)
+                        .id(model.sentence.id)
                 }
 
-                if model.phase != .idle && model.phase != .connecting {
+                if model.phase != .connecting {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("Your answer").font(.subheadline.weight(.medium))
@@ -48,12 +38,18 @@ struct ContentView: View {
                                 Text("Edit if needed").font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        if model.phase == .ready {
+                        if model.phase == .idle || model.phase == .ready {
                             TextField("Your German translation", text: $model.answer, axis: .vertical)
                                 .textFieldStyle(.plain)
                                 .lineLimit(2...5)
                                 .font(.title3)
                                 .accessibilityLabel("Your German answer")
+                                .onSubmit(model.check)
+                                .onKeyPress(.return, phases: .down) { press in
+                                    guard !press.modifiers.contains(.shift) else { return .ignored }
+                                    model.check()
+                                    return .handled
+                                }
                         } else {
                             Text(model.answer.isEmpty ? "Your words will appear here…" : model.answer)
                                 .font(.title3)
@@ -93,7 +89,7 @@ struct ContentView: View {
 
                 controls.controlSize(.large)
                 if model.phase == .idle && model.errorMessage == nil {
-                    Text("Read the sentence, then record your translation.")
+                    Text("Type your translation or record it aloud.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -111,8 +107,12 @@ struct ContentView: View {
     @ViewBuilder private var controls: some View {
         switch model.phase {
         case .idle:
-            Button(action: model.record) { Label("Record", systemImage: "mic.fill") }
-                .buttonStyle(.borderedProminent)
+            HStack(spacing: 12) {
+                Button(action: model.record) { Label("Record", systemImage: "mic.fill") }
+                    .buttonStyle(.bordered)
+                Button("Check answer", action: model.check)
+                    .buttonStyle(.borderedProminent).disabled(!model.canCheck)
+            }
         case .connecting:
             HStack {
                 ProgressView().controlSize(.small)
@@ -144,10 +144,103 @@ struct ContentView: View {
             }
         case .graded:
             HStack(spacing: 12) {
-                Button("Try again", action: model.record).buttonStyle(.bordered)
+                Button("Try again", action: model.retry).buttonStyle(.bordered)
                 Button(model.isLast ? "Start again" : "Next", action: model.next)
                     .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             }
+        }
+    }
+}
+
+private struct SentencePromptView: View {
+    let sentence: PracticeSentence
+    @State private var hoveredWord: Int?
+
+    private var words: [SentenceWordHint] { SentenceHints.words(for: sentence) }
+    private var hint: String? { words.first { $0.id == hoveredWord }?.german }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            CenteredWordLayout {
+                ForEach(words) { word in
+                    Text(word.english)
+                        .font(.system(size: 32))
+                        .fixedSize()
+                        .foregroundStyle(hoveredWord == word.id ? Color.accentColor : .primary)
+                        .underline(hoveredWord == word.id)
+                        .accessibilityHint(word.german)
+                        .onHover { hovering in
+                            if hovering { hoveredWord = word.id }
+                            else if hoveredWord == word.id { hoveredWord = nil }
+                        }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 150)
+
+            // Keep the hint outside the hover targets so displaying it cannot move
+            // the words or intercept the pointer and immediately dismiss itself.
+            Text(hint ?? "Hover over a word for a hint.")
+                .font(hint == nil ? .caption : .callout.weight(.medium))
+                .foregroundStyle(hint == nil ? Color.secondary : .primary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.accentColor.opacity(hint == nil ? 0 : 0.1),
+                            in: RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .allowsHitTesting(false)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// Wraps individual hover targets into centered lines without changing word order.
+private struct CenteredWordLayout: Layout {
+    private let spacing: CGFloat = 8
+    private let lineSpacing: CGFloat = 5
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(for subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if !row.indices.isEmpty && row.width + spacing + size.width > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width += (row.indices.isEmpty ? 0 : spacing) + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+        }
+        if !row.indices.isEmpty { rows.append(row) }
+        return rows
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
+        return CGSize(width: rows.map(\.width).max() ?? 0,
+                      height: rows.reduce(0) { $0 + $1.height } + CGFloat(max(0, rows.count - 1)) * lineSpacing)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(for: subviews, width: bounds.width) {
+            var x = bounds.midX - row.width / 2
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                                      anchor: .topLeading, proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
         }
     }
 }

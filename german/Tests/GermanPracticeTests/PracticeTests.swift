@@ -141,6 +141,63 @@ import Testing
         #expect(fixture.model.phase == .ready)
     }
 
+    @Test func typedAnswerIsGradedWithoutTranscription() async {
+        let fixture = Fixture()
+        fixture.credentials.keys[.elevenLabs] = ""
+        fixture.model.answer = "  Ich bin hier.\n"
+        #expect(fixture.model.canCheck)
+        fixture.model.check()
+        #expect(!fixture.model.canCheck)
+        await eventually { fixture.model.phase == .graded }
+        #expect(fixture.grader.receivedAnswer == "Ich bin hier.")
+        #expect(fixture.grader.receivedSentence?.id == fixture.model.sentence.id)
+        #expect(fixture.model.grade?.score == 5)
+        #expect(fixture.services.isEmpty)
+
+        fixture.model.retry()
+        #expect(fixture.model.phase == .idle)
+        #expect(fixture.model.answer.isEmpty)
+        #expect(fixture.model.grade == nil)
+        #expect(fixture.model.index == 0)
+        #expect(!fixture.model.canCheck)
+        fixture.model.answer = "Ich bin hier."
+        fixture.model.check()
+        await eventually { fixture.model.phase == .graded }
+        fixture.model.next()
+        #expect(fixture.model.index == 1)
+        #expect(fixture.model.phase == .idle)
+        #expect(fixture.model.answer.isEmpty)
+        #expect(fixture.services.isEmpty)
+    }
+
+    @Test func blankTypedAnswerCannotBeSubmitted() {
+        let fixture = Fixture()
+        for answer in ["", " \n\t "] {
+            fixture.model.answer = answer
+            #expect(!fixture.model.canCheck)
+            fixture.model.check()
+            #expect(fixture.model.phase == .idle)
+            #expect(fixture.grader.receivedAnswer == nil)
+        }
+    }
+
+    @Test func typedAnswerSurvivesGradingFailureAndCanBeEdited() async {
+        let fixture = Fixture()
+        fixture.grader.shouldFail = true
+        fixture.model.answer = "Ich bin her."
+        fixture.model.check()
+        await eventually { fixture.model.phase == .ready }
+        #expect(fixture.model.answer == "Ich bin her.")
+        #expect(fixture.model.errorMessage == "Try again.")
+        fixture.model.answer = "Ich bin hier."
+        fixture.grader.shouldFail = false
+        fixture.model.check()
+        await eventually { fixture.model.phase == .graded }
+        #expect(fixture.grader.receivedAnswer == "Ich bin hier.")
+        #expect(fixture.model.errorMessage == nil)
+        #expect(fixture.services.isEmpty)
+    }
+
     @Test func checksEditedAnswerAndRemembersProgress() async {
         let fixture = Fixture()
         await fixture.ready("Ich bin her.")
