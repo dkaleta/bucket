@@ -47,43 +47,6 @@
 		A150CD933062569D00487486 /* LangMapUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LangMapUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A150CDB0306256A900487486 /* Exceptions for "LangMap" folder in "KonjuGo" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				App/Assets.xcassets,
-				App/ContentView.swift,
-				App/LangMapApp.swift,
-				LangMapTests/LangMapTests.swift,
-				LangMapUITests/LangMapUITests.swift,
-			);
-			target = A150CCE930601FFF00487486 /* KonjuGo */;
-		};
-		A150CDB1306256A900487486 /* Exceptions for "LangMap" folder in "LangMap" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				App/Assets.xcassets,
-				App/ContentView.swift,
-				App/LangMapApp.swift,
-			);
-			target = A150CD7C3062569C00487486 /* LangMap */;
-		};
-		A150CDB2306256A900487486 /* Exceptions for "LangMap" folder in "LangMapTests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				LangMapTests/LangMapTests.swift,
-			);
-			target = A150CD883062569D00487486 /* LangMapTests */;
-		};
-		A150CDB3306256A900487486 /* Exceptions for "LangMap" folder in "LangMapUITests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				LangMapUITests/LangMapUITests.swift,
-			);
-			target = A150CD923062569D00487486 /* LangMapUITests */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A1032DDC3049558200C9FD52 /* german */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -105,15 +68,19 @@
 			path = KonjuGoUITests;
 			sourceTree = "<group>";
 		};
-		A150CDA2306256A200487486 /* LangMap */ = {
+		A150CDA2306256A200487486 /* LangMap/App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				A150CDB0306256A900487486 /* Exceptions for "LangMap" folder in "KonjuGo" target */,
-				A150CDB1306256A900487486 /* Exceptions for "LangMap" folder in "LangMap" target */,
-				A150CDB2306256A900487486 /* Exceptions for "LangMap" folder in "LangMapTests" target */,
-				A150CDB3306256A900487486 /* Exceptions for "LangMap" folder in "LangMapUITests" target */,
-			);
-			path = LangMap;
+			path = LangMap/App;
+			sourceTree = "<group>";
+		};
+		A150CDB2306256A900487486 /* LangMap/LangMapTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LangMap/LangMapTests;
+			sourceTree = "<group>";
+		};
+		A150CDB3306256A900487486 /* LangMap/LangMapUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LangMap/LangMapUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -174,7 +141,9 @@
 		A1032DD13049558200C9FD52 = {
 			isa = PBXGroup;
 			children = (
-				A150CDA2306256A200487486 /* LangMap */,
+				A150CDA2306256A200487486 /* LangMap/App */,
+				A150CDB2306256A900487486 /* LangMap/LangMapTests */,
+				A150CDB3306256A900487486 /* LangMap/LangMapUITests */,
 				A1032DDC3049558200C9FD52 /* german */,
 				A150CCEB30601FFF00487486 /* KonjuGo */,
 				A150CCF93060200000487486 /* KonjuGoTests */,
@@ -236,7 +205,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A150CCEB30601FFF00487486 /* KonjuGo */,
-				A150CDA2306256A200487486 /* LangMap */,
 			);
 			name = KonjuGo;
 			packageProductDependencies = (
@@ -303,6 +271,9 @@
 			);
 			dependencies = (
 			);
+			fileSystemSynchronizedGroups = (
+				A150CDA2306256A200487486 /* LangMap/App */,
+			);
 			name = LangMap;
 			packageProductDependencies = (
 			);
@@ -323,6 +294,9 @@
 			dependencies = (
 				A150CD8B3062569D00487486 /* PBXTargetDependency */,
 			);
+			fileSystemSynchronizedGroups = (
+				A150CDB2306256A900487486 /* LangMap/LangMapTests */,
+			);
 			name = LangMapTests;
 			packageProductDependencies = (
 			);
@@ -342,6 +316,9 @@
 			);
 			dependencies = (
 				A150CD953062569D00487486 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A150CDB3306256A900487486 /* LangMap/LangMapUITests */,
 			);
 			name = LangMapUITests;
 			packageProductDependencies = (

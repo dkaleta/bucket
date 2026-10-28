@@ -10,8 +10,9 @@ import SwiftUI
 @main
 struct LangMapApp: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("LangMap") {
             ContentView()
         }
+        .defaultSize(width: 1120, height: 780)
     }
 }

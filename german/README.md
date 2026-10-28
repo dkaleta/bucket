@@ -37,6 +37,22 @@ GERMAN_LIVE_TESTS=1 swift test --filter GradingLiveTests
 
 The grading prompt uses explicit score examples, following [OpenAI's guidance on examples in prompts](https://developers.openai.com/api/docs/guides/prompt-engineering#few-shot-learning).
 
+## LangMap
+
+Run the **LangMap** scheme for an offline, two-level German grammar map. The overview has six connected branches; zooming into a branch cross-fades into its topic names. This first version contains no lessons or third level.
+
+- Drag or scroll to pan. Pinch or **⌘-scroll** over a branch to zoom into it. Reversing the zoom reverses the fade.
+- Click or double-click a branch to fit its submap in the window. Use **German** in the breadcrumb or **Escape** to return to the saved overview position.
+- **⌘+ / ⌘−** zoom at the viewport center. **⌘0** or **Reset view** fits the overview again.
+
+The map uses SwiftUI Canvas with measured node geometry and a separate accessible interaction layer. Colors identify topic families. Navigation is Mac-first; iOS and visionOS configurations compile, but touch-specific navigation is not yet implemented. The hierarchy and layout are hardcoded; no keys or network access are needed.
+
+```sh
+xcodebuild -project german.xcodeproj -scheme LangMap -destination 'platform=macOS' test
+```
+
+Tests cover camera transforms, pointer anchoring, hit-testing, the reversible two-level transition, navigation, and window resizing. UI tests exercise branch navigation, drag/scroll panning, command-scroll zoom, and screenshots of the overview, transition, and detail view.
+
 ## KonjuGo
 
 The **KonjuGo** scheme is a separate app for exploring German verb conjugation on Mac, iPhone, and iPad. Its existing targets require macOS/iOS 27.0.

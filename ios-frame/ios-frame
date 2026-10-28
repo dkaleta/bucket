@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Composite real screenshots into a locally cached official Apple bezel."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent
+
+
+def run(*args):
+    result = subprocess.run(["magick", *map(str, args)], capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or "ImageMagick failed")
+    return result.stdout.strip()
+
+
+def dimensions(path):
+    return tuple(map(int, run("identify", "-format", "%w %h", str(path) + "[0]").split()))
+
+
+def main():
+    frames = json.loads((ROOT / "frames.json").read_text())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("screenshot", nargs="?", type=Path)
+    parser.add_argument("-o", "--output", type=Path)
+    parser.add_argument("--frame", choices=frames, default="iphone-18-pro-black")
+    parser.add_argument("--background", default="transparent", help="transparent, white, or a color such as '#f5f3ef'")
+    parser.add_argument("--padding", type=int, default=0, help="Pixels around the device (default: 0)")
+    parser.add_argument("--force", action="store_true", help="Replace an existing output file")
+    parser.add_argument("--list-frames", action="store_true")
+    parser.add_argument("--install-frame", type=Path, metavar="APPLE_PNG", help="Cache the selected official frame from a downloaded Apple PNG")
+    parser.add_argument("--cache-dir", type=Path, default=Path.home() / ".cache" / "ios-frame")
+    args = parser.parse_args()
+    if args.list_frames:
+        for name, frame in frames.items():
+            cached = (args.cache_dir / (name + ".png")).is_file()
+            print(f"{name}: {frame['label']} ({'installed' if cached else 'not installed'})")
+        return
+    if not shutil.which("magick"):
+        parser.error("ImageMagick is required. Install it with: brew install imagemagick")
+    frame = frames[args.frame]
+    bezel = args.cache_dir.expanduser().resolve() / (args.frame + ".png")
+    if args.install_frame:
+        source = args.install_frame.expanduser().resolve()
+        if not source.is_file():
+            parser.error(f"Frame not found: {source}")
+        if dimensions(source) != tuple(frame["size"]):
+            parser.error(f"Frame must be {frame['size']}, matching {frame['label']}")
+        if hashlib.sha256(source.read_bytes()).hexdigest() != frame["sha256"]:
+            parser.error("Frame does not match the verified official Apple asset")
+        bezel.parent.mkdir(parents=True, exist_ok=True)
+        if source != bezel:
+            shutil.copyfile(source, bezel)
+        print(bezel)
+        return
+    if args.screenshot is None:
+        parser.error("Provide a screenshot, --install-frame, or --list-frames")
+    if not 0 <= args.padding <= 4096:
+        parser.error("Padding must be between 0 and 4096 pixels")
+    source = args.screenshot.expanduser().resolve()
+    output = (args.output or source.with_name(source.stem + "-" + args.frame + ".png")).expanduser().resolve()
+    if not source.is_file():
+        parser.error(f"Screenshot not found: {source}")
+    if output == source or output == bezel:
+        parser.error("Output must not replace the screenshot or frame asset")
+    if output.suffix.lower() != ".png":
+        parser.error("Output must have a .png extension")
+    if output.exists() and not args.force:
+        parser.error(f"Output already exists: {output}. Use --force to replace it")
+    if not bezel.is_file():
+        parser.error(f"Frame is not installed. Download {frame['download']}, then run --install-frame with {frame['asset']}")
+    if hashlib.sha256(bezel.read_bytes()).hexdigest() != frame["sha256"]:
+        parser.error("Cached frame changed; reinstall the verified Apple PNG")
+    x, y, width, height = frame["screen"]
+    actual_width, actual_height = dimensions(source)
+    if abs((actual_width / actual_height) / (width / height) - 1) > 0.001:
+        parser.error(f"Screenshot is {actual_width}×{actual_height}; this frame needs the {width}×{height} aspect ratio. Capture on a matching simulator; the tool will not crop or stretch it")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ios-frame-") as tmp:
+        tmp = Path(tmp)
+        mask, screen, device = (tmp / name for name in ("mask.png", "screen.png", "device.png"))
+        # Flood only the enclosed transparent screen opening. The outer background
+        # and camera remain masked; the original bezel supplies antialiased edges.
+        run(bezel, "-alpha", "extract", "-threshold", "50%", "-fill", "red",
+            "-draw", f"color {x + width // 2},{y + height // 2} floodfill",
+            "-fill", "black", "+opaque", "red", "-fill", "white", "-opaque", "red", mask)
+        run(str(source) + "[0]", "-resize", f"{width}x{height}!", screen)
+        fw, fh = frame["size"]
+        run("-size", f"{fw}x{fh}", "xc:none", screen, "-geometry", f"+{x}+{y}",
+            "-compose", "over", "-composite", mask, "-geometry", "+0+0",
+            "-alpha", "off", "-compose", "CopyOpacity", "-composite",
+            bezel, "-compose", "over", "-composite", device)
+        background = "none" if args.background == "transparent" else args.background
+        # Render in the destination directory, then publish without partial files.
+        with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".png", delete=False) as temp:
+            rendered = Path(temp.name)
+        try:
+            run("-size", f"{fw + 2 * args.padding}x{fh + 2 * args.padding}",
+                "xc:" + background, device, "-geometry", f"+{args.padding}+{args.padding}",
+                "-compose", "over", "-composite", rendered)
+            if args.force:
+                os.replace(rendered, output)
+            else:
+                os.link(rendered, output)
+        finally:
+            rendered.unlink(missing_ok=True)
+    print(output)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError) as error:
+        print(f"ios-frame: {error}", file=sys.stderr)
+        sys.exit(1)

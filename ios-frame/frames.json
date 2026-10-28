@@ -1,0 +1,19 @@
+{
+  "iphone-18-pro-black": {
+    "label": "Apple iPhone 18 Pro \u2014 Black, portrait",
+    "size": [
+      1350,
+      2760
+    ],
+    "screen": [
+      72,
+      69,
+      1206,
+      2622
+    ],
+    "sha256": "cb7b20a551c4fd63e794e1dd08ab0096816a12e72d38503f36a242550f07264c",
+    "source": "https://developer.apple.com/design/resources/#product-bezels",
+    "download": "https://devimages-cdn.apple.com/design/resources/download/Bezel-iPhone-18.dmg",
+    "asset": "PNG/iPhone 18 Pro/iPhone 18 Pro - Black - Portrait.png"
+  }
+}
