@@ -10,11 +10,15 @@ A small native macOS app for practicing typed or spoken English-to-German transl
 4. Correct the transcript if needed and press **Enter** or click **Check answer**. **Shift+Enter** inserts a new line. You'll receive a score from **1 to 5 (5 is best)**, a natural German answer, and at most one important tip.
 5. Use **Try again** to clear your answer and type or record a new attempt, or **Next** (also **Enter** once the grade appears) to move on. The app remembers your position in the 100 sentences. After the last sentence, **Start again** returns to the beginning.
 
-Audio goes directly to ElevenLabs Scribe v2 Realtime. Grading uses OpenAI's Responses API with `gpt-4.1-mini` and `store: false`. Your provider accounts need access and available API usage; normal provider charges and retention policies apply. The app does not save recordings or answer history locally. It assesses the transcribed translation, not pronunciation.
+Audio goes directly to ElevenLabs Scribe v2 Realtime. Grading uses OpenAI's Responses API with `gpt-6.1-sol`, Ultrafast processing (`service_tier: "ultrafast"`), low reasoning effort, and `store: false`. Your provider accounts need access and available API usage; Ultrafast pricing and normal provider retention policies apply. The app saves active lessons, their positions, and current answers and feedback locally in Application Support under `GermanPractice/session.json`. It does not save audio or a completed-answer history. It assesses the transcribed translation, not pronunciation.
 
 Grading focuses on meaning and grammar: minor spelling mistakes with clear meaning should receive **4/5**. Capitalization and punctuation do not affect the score or feedback, whether you type or record. Feedback highlights only the most important correction.
 
 Hover over an English word to immediately see a German vocabulary hint below the sentence. All 100 sentences have built-in, context-specific hints that work offline. Nouns include articles, verbs generally show their infinitive, and expressions such as “get up” share a phrase hint.
+
+Every question has topic and grammar tags. Click a tag to generate a focused lesson using GPT-6.1 Sol with Ultrafast and low reasoning effort. **Settings → Practice lessons** selects 5, 10 (default), or 20 questions for new lessons. Generated questions match the source question’s difficulty and include word hints. Provider usage charges apply.
+
+Tags inside a lesson can open another lesson. The breadcrumb shows your path; **Return to …** restores the interrupted question, answer, and feedback. The final question’s return button finishes the lesson; you can also return early. Active nested lessons resume after reopening the app without regeneration. Generation errors and cancellation preserve the original question.
 
 If microphone access was denied, enable it in **System Settings → Privacy & Security → Microphone**. A connection failure keeps available text so you can edit it or record again. The app never submits an answer for grading until you click **Check answer**.
 
@@ -28,6 +32,8 @@ swift test
 ```
 
 The Swift package runs isolated tests for the practice state machine, sentence data, transcript assembly, and grading request/response handling without API keys or provider calls. Microphone capture and live provider behavior require an end-to-end check with configured keys.
+
+A Debug build launched with `--lesson-preview` uses isolated local lesson and grading fixtures for UI checks, without reading API keys or saving user progress.
 
 The opt-in grading regression makes five real OpenAI requests using the key saved in German Practice Settings. It checks minor typos, capitalization, alternative wording, and a changed meaning:
 

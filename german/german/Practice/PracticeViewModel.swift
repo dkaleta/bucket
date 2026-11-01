@@ -8,7 +8,17 @@ final class PracticeViewModel {
     private(set) var index: Int
     private(set) var grade: Grade?
     private(set) var errorMessage: String?
-    var answer = ""
+    var answer = "" { didSet { scheduleSave() } }
+    private(set) var sessions: [PracticeSession] = []
+    private(set) var preparingTag: LessonTag?
+    private(set) var lessonError: String?
+    private(set) var isPreparing = false
+    private(set) var preparingCount = 10
+    private let generator: any LessonGenerating
+    private var sessionStore: PracticeSessionStore?
+    private var saveTask: Task<Void, Never>?
+    private var generationTask: Task<Void, Never>?
+    private var generationID = UUID()
 
     private let credentials: any CredentialStoring
     private let makeTranscriber: () -> any Transcribing
@@ -19,21 +29,46 @@ final class PracticeViewModel {
     private var task: Task<Void, Never>?
     private var attemptID = UUID()
 
-    var sentence: PracticeSentence { Sentences.all[index] }
-    var progress: String { "\(index + 1) / \(Sentences.all.count)" }
-    var isLast: Bool { index == Sentences.all.count - 1 }
+    var sentence: PracticeSentence { sessions.last!.questions[index] }
+    var sessionID: UUID { sessions.last!.id }
+    var title: String { sessions.last!.title }
+    var parentTitle: String? { sessions.dropLast().last?.title }
+    var breadcrumbs: String { sessions.map(\.title).joined(separator: " › ") }
+    var canStartLesson: Bool { !isPreparing && (phase == .idle || phase == .ready || phase == .graded) }
+    var tags: [LessonTag] { sentence.tagIDs.compactMap(LessonTag.find) }
+    var progress: String { "\(index + 1) / \(sessions.last!.questions.count)" }
+    var isLast: Bool { index == sessions.last!.questions.count - 1 }
     var canCheck: Bool {
         (phase == .idle || phase == .ready)
             && !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     init(credentials: any CredentialStoring, grader: any Grading,
-         defaults: UserDefaults = .standard, makeTranscriber: @escaping () -> any Transcribing) {
+         defaults: UserDefaults = .standard,
+         generator: (any LessonGenerating)? = nil,
+         sessionStore: PracticeSessionStore? = nil, makeTranscriber: @escaping () -> any Transcribing) {
         self.credentials = credentials
         self.grader = grader
         self.defaults = defaults
+        self.generator = generator ?? OpenAILessonGenerator()
+        self.sessionStore = sessionStore
         self.makeTranscriber = makeTranscriber
         index = min(max(defaults.integer(forKey: "practice.sentenceIndex"), 0), Sentences.all.count - 1)
+        sessions = [PracticeSession(title: "German practice", questions: Sentences.all, index: index)]
+        do {
+            if let restored = try sessionStore?.load() {
+                sessions = restored
+                restoreCurrent()
+            }
+        } catch {
+            // Preserve the original bytes before allowing a fresh snapshot to replace them.
+            if let store = self.sessionStore {
+                do {
+                    try FileManager.default.copyItem(at: store.url, to: store.url.appendingPathExtension("unreadable-" + UUID().uuidString))
+                } catch { self.sessionStore = nil }
+            }
+            errorMessage = "Saved lessons could not be restored. Resuming your original question list."
+        }
     }
 
     func record() {
@@ -105,6 +140,7 @@ final class PracticeViewModel {
                 guard attemptID == id, !Task.isCancelled else { return }
                 grade = result
                 phase = .graded
+                saveProgress()
             } catch { recover(error, id: id) }
         }
     }
@@ -115,18 +151,103 @@ final class PracticeViewModel {
         grade = nil
         errorMessage = nil
         phase = .idle
+        saveProgress()
     }
 
     func next() {
         guard phase == .graded else { return }
+        if isLast && sessions.count > 1 { returnToParent(); return }
         index = isLast ? 0 : index + 1
-        defaults.set(index, forKey: "practice.sentenceIndex")
+        if sessions.count == 1 { defaults.set(index, forKey: "practice.sentenceIndex") }
         retry()
     }
 
     func leave() {
         cancelWork()
         if phase != .graded { phase = answer.isEmpty ? .idle : .ready }
+        cancelLesson()
+        saveProgress()
+    }
+
+    func startLesson(_ tag: LessonTag) {
+        guard canStartLesson else { return }
+        saveProgress()
+        preparingTag = tag
+        lessonError = nil
+        isPreparing = true
+        let id = UUID()
+        generationID = id
+        let source = sentence
+        let excluded = sessions.last!.questions.map(\.english)
+        let preference = defaults.integer(forKey: "practice.lessonSize")
+        let count = [5,10,20].contains(preference) ? preference : 10
+        preparingCount = count
+        generationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let key = try credentials.read(.openAI)
+                guard !key.isEmpty else { throw PracticeError(message: "Add your OpenAI API key in Settings to prepare a lesson.") }
+                let questions = try await generator.generate(tag: tag, source: source, count: count, excluding: excluded, apiKey: key)
+                guard generationID == id, !Task.isCancelled else { return }
+                try OpenAILessonGenerator.validate(questions, count: count)
+                cancelWork()
+                sessions.append(PracticeSession(title: tag.title, questions: questions))
+                restoreCurrent()
+                preparingTag = nil
+                isPreparing = false
+                saveProgress()
+            } catch {
+                guard generationID == id, !Task.isCancelled else { return }
+                isPreparing = false
+                lessonError = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelLesson() {
+        generationID = UUID()
+        generationTask?.cancel()
+        generationTask = nil
+        preparingTag = nil
+        isPreparing = false
+        lessonError = nil
+    }
+
+    func returnToParent() {
+        guard sessions.count > 1 else { return }
+        cancelLesson()
+        cancelWork()
+        sessions.removeLast()
+        restoreCurrent()
+        saveProgress()
+    }
+
+    private func restoreCurrent() {
+        guard let current = sessions.last else { return }
+        index = current.index
+        answer = current.answer
+        grade = current.grade
+        errorMessage = nil
+        phase = grade != nil ? .graded : answer.isEmpty ? .idle : .ready
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            self?.saveProgress()
+        }
+    }
+
+    func saveProgress() {
+        saveTask?.cancel()
+        guard !sessions.isEmpty else { return }
+        let last = sessions.count - 1
+        sessions[last].index = index
+        sessions[last].answer = answer
+        sessions[last].grade = phase == .graded ? grade : nil
+        do { try sessionStore?.save(sessions) }
+        catch { errorMessage = "Your progress could not be saved on this Mac." }
     }
 
     private func recover(_ error: Error, id: UUID) {

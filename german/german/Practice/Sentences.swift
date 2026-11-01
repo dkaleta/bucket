@@ -1,7 +1,7 @@
 import Foundation
 
 enum Sentences {
-    static let all: [PracticeSentence] = [
+    static let all: [PracticeSentence] = ([
         .init(id: 1, english: "I am here.", german: "Ich bin hier."),
         .init(id: 2, english: "You are nice.", german: "Du bist nett."),
         .init(id: 3, english: "He is tired.", german: "Er ist müde."),
@@ -102,5 +102,9 @@ enum Sentences {
         .init(id: 98, english: "I must buy bread.", german: "Ich muss Brot kaufen."),
         .init(id: 99, english: "He wants to play football.", german: "Er will Fußball spielen."),
         .init(id: 100, english: "Would you like to go for a walk?", german: "Möchtest du spazieren gehen?")
-    ]
+    ] as [PracticeSentence]).map { sentence in
+        var tagged = sentence
+        tagged.tagIDs = LessonTag.builtInTags(for: sentence.id)
+        return tagged
+    }
 }

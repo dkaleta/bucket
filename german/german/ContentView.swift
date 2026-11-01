@@ -1,21 +1,33 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var model = PracticeViewModel(
-        credentials: KeychainStore(), grader: OpenAIGrader(),
-        makeTranscriber: { ElevenLabsTranscriber() }
-    )
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var model: PracticeViewModel = {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--lesson-preview") { return LessonPreview.model() }
+        #endif
+        return PracticeViewModel(credentials: KeychainStore(), grader: OpenAIGrader(), sessionStore: .standard,
+                                 makeTranscriber: { ElevenLabsTranscriber() })
+    }()
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 HStack {
-                    Label("German practice", systemImage: "text.bubble")
+                    Label(model.title, systemImage: "text.bubble")
                         .font(.headline)
                     Spacer()
                     Text(model.progress).monospacedDigit().foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 16)
+
+                if let parent = model.parentTitle {
+                    VStack(spacing: 8) {
+                        Text(model.breadcrumbs).font(.caption).foregroundStyle(.secondary)
+                        Button("Return to \(parent)", action: model.returnToParent)
+                            .disabled(!model.canStartLesson)
+                    }
+                }
 
                 VStack(spacing: 0) {
                     Text("TRANSLATE INTO GERMAN")
@@ -23,7 +35,18 @@ struct ContentView: View {
                         .tracking(2)
                         .foregroundStyle(.secondary)
                     SentencePromptView(sentence: model.sentence)
-                        .id(model.sentence.id)
+                        .id("\(model.sessionID)-\(model.sentence.id)")
+                }
+
+                CenteredWordLayout {
+                    ForEach(model.tags) { tag in
+                        Button(tag.title) { model.startLesson(tag) }
+                            .buttonStyle(.bordered)
+                            .clipShape(Capsule())
+                            .help("Practice \(tag.title.lowercased()) in a new lesson")
+                            .accessibilityLabel("Start lesson: \(tag.title)")
+                            .disabled(!model.canStartLesson)
+                    }
                 }
 
                 if model.phase != .connecting {
@@ -101,6 +124,22 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem { SettingsLink { Label("Settings", systemImage: "gearshape") } }
         }
+        .sheet(isPresented: Binding(get: { model.preparingTag != nil }, set: { if !$0 { model.cancelLesson() } })) {
+            VStack(spacing: 20) {
+                if model.isPreparing {
+                    ProgressView()
+                    Text("Preparing \(model.preparingCount) questions about \(model.preparingTag?.title.lowercased() ?? "this topic")…")
+                } else {
+                    Text(model.lessonError ?? "Could not prepare the lesson.")
+                    Button("Retry") { if let tag = model.preparingTag { model.startLesson(tag) } }
+                }
+                Button("Cancel", action: model.cancelLesson).keyboardShortcut(.cancelAction)
+            }
+            .padding(32).frame(width: 380)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { model.saveProgress() }
+        }
         .onDisappear { model.leave() }
     }
 
@@ -145,7 +184,7 @@ struct ContentView: View {
         case .graded:
             HStack(spacing: 12) {
                 Button("Try again", action: model.retry).buttonStyle(.bordered)
-                Button(model.isLast ? "Start again" : "Next", action: model.next)
+                Button(model.isLast ? model.parentTitle.map { "Return to \($0)" } ?? "Start again" : "Next", action: model.next)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }

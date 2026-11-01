@@ -70,8 +70,10 @@ import Foundation
             "required": ["score", "germanAnswer", "tip"]
         ]
         return try JSONSerialization.data(withJSONObject: [
-            "model": "gpt-4.1-mini", "store": false, "instructions": instructions,
-            "input": String(decoding: input, as: UTF8.self), "max_output_tokens": 250,
+            "model": "gpt-6.1-sol", "service_tier": "ultrafast",
+            "reasoning": ["effort": "low"], "store": false, "instructions": instructions,
+            // Allow room for reasoning tokens as well as the short structured grade.
+            "input": String(decoding: input, as: UTF8.self), "max_output_tokens": 4096,
             "text": ["format": ["type": "json_schema", "name": "translation_grade", "strict": true, "schema": schema]]
         ])
     }

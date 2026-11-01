@@ -1,9 +1,11 @@
 import Foundation
 
-struct PracticeSentence: Identifiable, Sendable {
+struct PracticeSentence: Identifiable, Codable, Sendable {
     let id: Int
     let english: String
     let german: String
+    var tagIDs: [String] = []
+    var wordHints: [String]? = nil
 }
 
 struct Grade: Codable, Equatable, Sendable {

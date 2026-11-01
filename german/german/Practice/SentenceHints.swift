@@ -10,7 +10,7 @@ struct SentenceWordHint: Identifiable {
 /// words in an expression share its hint instead of a misleading literal translation.
 enum SentenceHints {
     static func words(for sentence: PracticeSentence) -> [SentenceWordHint] {
-        let hints = translations[sentence.id]?.components(separatedBy: "|") ?? []
+        let hints = sentence.wordHints ?? translations[sentence.id]?.components(separatedBy: "|") ?? []
         return sentence.english.split(whereSeparator: \.isWhitespace).enumerated().map { index, word in
             SentenceWordHint(id: index, english: String(word),
                              german: hints.indices.contains(index) ? hints[index] : "Hint unavailable")
