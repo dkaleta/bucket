@@ -56,7 +56,7 @@ import Testing
         services.append(service)
         return service
     }
-    init() { defaults = UserDefaults(suiteName: "GermanPracticeTests.\(UUID())")! }
+    init() { defaults = UserDefaults(suiteName: "GermanPracticeTests.\(UUID())")!; defaults.set(0, forKey: "practice.sentenceIndex") }
     func recording() async {
         model.record()
         await eventually { self.model.phase == .recording }
@@ -214,18 +214,6 @@ import Testing
         let restored = PracticeViewModel(credentials: fixture.credentials, grader: fixture.grader,
                                          defaults: fixture.defaults, makeTranscriber: { FakeTranscriber() })
         #expect(restored.index == 1)
-    }
-
-    @Test func lastSentenceStartsAgain() async {
-        let fixture = Fixture()
-        fixture.defaults.set(99, forKey: "practice.sentenceIndex")
-        #expect(fixture.model.isLast)
-        await fixture.ready()
-        fixture.model.check()
-        await eventually { fixture.model.phase == .graded }
-        fixture.model.next()
-        #expect(fixture.model.index == 0)
-        #expect(fixture.defaults.integer(forKey: "practice.sentenceIndex") == 0)
     }
 
     @Test func missingKeysAndGradingErrorsAreRecoverable() async {

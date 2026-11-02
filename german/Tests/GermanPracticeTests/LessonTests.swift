@@ -13,11 +13,18 @@ import Testing
 }
 @MainActor private final class LessonGenerator: LessonGenerating {
     var counts: [Int] = []
+    var exclusions: [[String]] = []
     var failure = false
     var suspended = false
     var waiter: CheckedContinuation<[PracticeSentence], Error>?
-    func generate(tag: LessonTag, source: PracticeSentence, count: Int, excluding: [String], apiKey: String) async throws -> [PracticeSentence] {
+    func generate(request: PracticeGenerationRequest, count: Int, excluding: [String], apiKey: String) async throws -> [PracticeSentence] {
+        let tag: LessonTag
+        switch request {
+        case .mixedBeginner: tag = LessonTag.find("when")!
+        case .focused(let focus, _): tag = focus
+        }
         counts.append(count)
+        exclusions.append(excluding)
         if failure { throw PracticeError(message: "Offline") }
         if suspended { return try await withCheckedThrowingContinuation { waiter = $0 } }
         return questions(count, tag: tag.id)
@@ -32,9 +39,95 @@ private func questions(_ count: Int = 5, tag: String = "when") -> [PracticeSente
 }
 @Suite @MainActor struct LessonTests {
     private func model(_ generator: LessonGenerator, defaults: UserDefaults, store: PracticeSessionStore? = nil) -> PracticeViewModel {
-        PracticeViewModel(credentials: LessonKeys(), grader: LessonGrader(), defaults: defaults,
+        if defaults.object(forKey: "practice.sentenceIndex") == nil { defaults.set(0, forKey: "practice.sentenceIndex") }
+        return PracticeViewModel(credentials: LessonKeys(), grader: LessonGrader(), defaults: defaults,
                           generator: generator, sessionStore: store, makeTranscriber: { fatalError("No recording in lesson tests") })
     }
+    @Test func continuousMainBatchesAndRestore() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(20, forKey: "practice.lessonSize")
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "/session.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = PracticeSessionStore(url: url)
+        let generator = LessonGenerator()
+        let vm = PracticeViewModel(credentials: LessonKeys(), grader: LessonGrader(), defaults: defaults,
+                                   generator: generator, sessionStore: store, makeTranscriber: { fatalError() })
+        #expect(!vm.hasQuestion)
+        vm.prepareInitialBatchIfNeeded()
+        vm.prepareInitialBatchIfNeeded()
+        await settle { !vm.isPreparing }
+        #expect(vm.progress == "1 / 10")
+        #expect(generator.counts == [10])
+        #expect(generator.exclusions[0].contains(Sentences.all[0].english))
+        for index in 0..<10 {
+            vm.answer = "answer"
+            vm.check()
+            await settle { vm.phase == .graded }
+            if index < 9 { vm.next() }
+        }
+        let oldID = vm.sessionID
+        generator.failure = true
+        vm.next()
+        await settle { vm.lessonError != nil }
+        #expect(vm.sessionID == oldID)
+        #expect(vm.progress == "10 / 10")
+        #expect(vm.grade != nil)
+        generator.failure = false
+        vm.retryGeneration()
+        await settle { !vm.isPreparing }
+        #expect(vm.sessionID != oldID)
+        #expect(vm.progress == "1 / 10")
+        #expect(vm.recentPrompts.count == 20)
+        #expect(generator.counts == [10,10,10])
+        vm.answer = "saved draft"
+        vm.saveProgress()
+        let restored = model(generator, defaults: defaults, store: store)
+        restored.prepareInitialBatchIfNeeded()
+        #expect(restored.answer == "saved draft")
+        #expect(restored.sessionID == vm.sessionID)
+        #expect(!restored.isPreparing)
+        #expect(restored.recentPrompts.count == 20)
+        try store.save(vm.sessions, recentPrompts: (0..<250).map { "prompt \($0)" })
+        #expect(try store.loadSnapshot()?.recentPrompts?.count == 200)
+    }
+
+    @Test func interruptedInitialBatchDoesNotAutoRestart() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "/session.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = PracticeSessionStore(url: url)
+        let generator = LessonGenerator()
+        generator.suspended = true
+        let vm = PracticeViewModel(credentials: LessonKeys(), grader: LessonGrader(), defaults: defaults,
+                                   generator: generator, sessionStore: store, makeTranscriber: { fatalError() })
+        vm.prepareInitialBatchIfNeeded()
+        await settle { generator.waiter != nil }
+        vm.leave()
+        generator.waiter?.resume(returning: questions(10))
+        for _ in 0..<10 { await Task.yield() }
+        #expect(!vm.hasQuestion)
+        let restored = model(generator, defaults: defaults, store: store)
+        restored.prepareInitialBatchIfNeeded()
+        #expect(!restored.isPreparing)
+        #expect(!restored.hasQuestion)
+        #expect(generator.counts == [10])
+    }
+
+    @Test func versionOneStackMigration() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "/session.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let root = PracticeSession(title: "German practice", questions: Sentences.all, index: 99)
+        let focused = PracticeSession(title: "Asking when", questions: questions(), index: 2, answer: "draft")
+        let snapshot = PracticeSessionStore.Snapshot(version: 1, sessions: [root, focused])
+        try JSONEncoder().encode(snapshot).write(to: url)
+        let store = PracticeSessionStore(url: url)
+        let restored = try #require(try store.loadSnapshot())
+        #expect(restored.sessions[0].kind == .legacy)
+        #expect(restored.sessions[1].kind == .focused)
+        #expect(restored.sessions[1].answer == "draft")
+    }
+
     @Test func catalogueAndCoverage() {
         #expect(Set(LessonTag.all.map(\.id)).count == LessonTag.all.count)
         for sentence in Sentences.all {
@@ -92,6 +185,7 @@ private func questions(_ count: Int = 5, tag: String = "when") -> [PracticeSente
         }
         #expect(vm.sessions.count == 1)
         #expect(vm.index == 0)
+        await settle { !vm.isPreparing }
         defaults.set(20, forKey: "practice.lessonSize")
         vm.startLesson(LessonTag.find("when")!)
         await settle { !vm.isPreparing }
@@ -149,6 +243,11 @@ private func questions(_ count: Int = 5, tag: String = "when") -> [PracticeSente
             return try JSONSerialization.data(withJSONObject: ["status":status,"output":[["type":"message","content":[["type":"output_text","text":text]]]]])
         }
         #expect(try OpenAILessonGenerator.decode(response(questions()), count: 5, tag: "when", excluding: []).count == 5)
+        #expect(try OpenAILessonGenerator.decode(response(questions(10)), count: 10, tag: nil, excluding: []).count == 10)
+        let mixedData = try OpenAILessonGenerator.body(tag: nil, source: nil, count: 10, excluding: ["Already used"])
+        let mixedBody = try #require(JSONSerialization.jsonObject(with: mixedData) as? [String: Any])
+        #expect((mixedBody["input"] as? String)?.contains("mixed") == true)
+        #expect((mixedBody["instructions"] as? String)?.contains("A1 beginner") == true)
         #expect(throws: (any Error).self) { try OpenAILessonGenerator.decode(response(questions(), status: "incomplete"), count: 5, tag: "when", excluding: []) }
         #expect(throws: (any Error).self) { try OpenAILessonGenerator.decode(response(questions()), count: 5, tag: "when", excluding: [questions()[0].english]) }
         var invalid = questions(); invalid[0].wordHints = []

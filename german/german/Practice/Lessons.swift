@@ -70,32 +70,55 @@ struct PracticeSession: Codable {
     var index: Int = 0
     var answer = ""
     var grade: Grade?
+    var kind: Kind? = nil
+    enum Kind: String, Codable { case legacy, mixed, focused }
+}
+
+enum PracticeGenerationRequest {
+    case mixedBeginner
+    case focused(LessonTag, PracticeSentence)
 }
 
 @MainActor protocol LessonGenerating {
-    func generate(tag: LessonTag, source: PracticeSentence, count: Int, excluding: [String], apiKey: String) async throws -> [PracticeSentence]
+    func generate(request: PracticeGenerationRequest, count: Int, excluding: [String], apiKey: String) async throws -> [PracticeSentence]
 }
 
 @MainActor struct PracticeSessionStore {
     var url: URL
-    struct Snapshot: Codable { var version = 1; var sessions: [PracticeSession] }
+    struct Snapshot: Codable {
+        var version = 2
+        var sessions: [PracticeSession]
+        var recentPrompts: [String]? = nil
+        var pendingBatch: Bool? = nil
+    }
     static var standard: Self {
         .init(url: URL.applicationSupportDirectory.appending(path: "GermanPractice/session.json"))
     }
-    func load() throws -> [PracticeSession]? {
+    func loadSnapshot() throws -> Snapshot? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: url))
-        guard snapshot.version == 1, !snapshot.sessions.isEmpty,
+        var snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: url))
+        guard [1,2].contains(snapshot.version),
               snapshot.sessions.allSatisfy({ !$0.questions.isEmpty && $0.questions.indices.contains($0.index) }) else {
             throw PracticeError(message: "Saved practice could not be restored.")
         }
-        for session in snapshot.sessions.dropFirst() {
-            try OpenAILessonGenerator.validate(session.questions, count: session.questions.count)
+        for index in snapshot.sessions.indices {
+            if snapshot.version == 1 {
+                snapshot.sessions[index].kind = index == 0 ? .legacy : .focused
+            }
+            let session = snapshot.sessions[index]
+            guard let kind = session.kind,
+                  index == 0 ? kind != .focused : kind == .focused else { throw OpenAILessonGenerator.invalid }
+            if kind != .legacy {
+                try OpenAILessonGenerator.validate(session.questions, count: kind == .mixed ? 10 : session.questions.count)
+            }
         }
-        return snapshot.sessions
+        snapshot.recentPrompts = Array((snapshot.recentPrompts ?? []).suffix(200))
+        return snapshot
     }
-    func save(_ sessions: [PracticeSession]) throws {
+    func load() throws -> [PracticeSession]? { try loadSnapshot()?.sessions }
+    func save(_ sessions: [PracticeSession], recentPrompts: [String] = [], pendingBatch: Bool = false) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(Snapshot(sessions: sessions)).write(to: url, options: .atomic)
+        let snapshot = Snapshot(sessions: sessions, recentPrompts: Array(recentPrompts.suffix(200)), pendingBatch: pendingBatch)
+        try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
     }
 }

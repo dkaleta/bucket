@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var speech: AnswerSpeech = {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--lesson-preview") { return LessonPreview.speech() }
+        #endif
+        return AnswerSpeech(credentials: KeychainStore())
+    }()
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: PracticeViewModel = {
         #if DEBUG
@@ -13,107 +19,132 @@ struct ContentView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                HStack {
-                    Label(model.title, systemImage: "text.bubble")
-                        .font(.headline)
-                    Spacer()
-                    Text(model.progress).monospacedDigit().foregroundStyle(.secondary)
-                }
-                .padding(.bottom, 16)
-
-                if let parent = model.parentTitle {
-                    VStack(spacing: 8) {
-                        Text(model.breadcrumbs).font(.caption).foregroundStyle(.secondary)
-                        Button("Return to \(parent)", action: model.returnToParent)
-                            .disabled(!model.canStartLesson)
-                    }
-                }
-
-                VStack(spacing: 0) {
-                    Text("TRANSLATE INTO GERMAN")
-                        .font(.caption.weight(.semibold))
-                        .tracking(2)
+                if model.needsMainBatch {
+                    Label("German practice", systemImage: "text.bubble").font(.headline)
+                    Text("Fresh practice, 10 questions at a time.").font(.title2)
+                    Text(model.errorMessage ?? "Mixed everyday topics at beginner level.")
                         .foregroundStyle(.secondary)
-                    SentencePromptView(sentence: model.sentence)
-                        .id("\(model.sessionID)-\(model.sentence.id)")
-                }
-
-                CenteredWordLayout {
-                    ForEach(model.tags) { tag in
-                        Button(tag.title) { model.startLesson(tag) }
-                            .buttonStyle(.bordered)
-                            .clipShape(Capsule())
-                            .help("Practice \(tag.title.lowercased()) in a new lesson")
-                            .accessibilityLabel("Start lesson: \(tag.title)")
-                            .disabled(!model.canStartLesson)
+                    Button(model.mainBatchActionTitle, action: model.startMainBatch)
+                        .buttonStyle(.borderedProminent).disabled(model.isPreparing)
+                } else {
+                    HStack {
+                        Label(model.title, systemImage: "text.bubble")
+                            .font(.headline)
+                        Spacer()
+                        Text(model.progress).monospacedDigit().foregroundStyle(.secondary)
                     }
-                }
+                    .padding(.bottom, 16)
 
-                if model.phase != .connecting {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Your answer").font(.subheadline.weight(.medium))
-                            Spacer()
-                            if model.phase == .recording {
-                                Label("Listening", systemImage: "record.circle.fill")
-                                    .font(.caption).foregroundStyle(.red)
-                            } else if model.phase == .ready {
-                                Text("Edit if needed").font(.caption).foregroundStyle(.secondary)
+                    if let parent = model.parentTitle {
+                        VStack(spacing: 8) {
+                            Text(model.breadcrumbs).font(.caption).foregroundStyle(.secondary)
+                            Button("Return to \(parent)", action: model.returnToParent)
+                                .disabled(!model.canStartLesson)
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        Text("TRANSLATE INTO GERMAN")
+                            .font(.caption.weight(.semibold))
+                            .tracking(2)
+                            .foregroundStyle(.secondary)
+                        SentencePromptView(sentence: model.sentence)
+                            .id("\(model.sessionID)-\(model.sentence.id)")
+                    }
+
+                    CenteredWordLayout {
+                        ForEach(model.tags) { tag in
+                            Button(tag.title) { model.startLesson(tag) }
+                                .buttonStyle(.bordered)
+                                .clipShape(Capsule())
+                                .help("Practice \(tag.title.lowercased()) in a new lesson")
+                                .accessibilityLabel("Start lesson: \(tag.title)")
+                                .disabled(!model.canStartLesson)
+                        }
+                    }
+
+                    if model.phase != .connecting {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Your answer").font(.subheadline.weight(.medium))
+                                Spacer()
+                                if model.phase == .recording {
+                                    Label("Listening", systemImage: "record.circle.fill")
+                                        .font(.caption).foregroundStyle(.red)
+                                } else if model.phase == .ready {
+                                    Text("Edit if needed").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            if model.phase == .idle || model.phase == .ready {
+                                TextField("Your German translation", text: $model.answer, axis: .vertical)
+                                    .textFieldStyle(.plain)
+                                    .lineLimit(2...5)
+                                    .font(.title3)
+                                    .accessibilityLabel("Your German answer")
+                                    .onSubmit(model.check)
+                                    .onKeyPress(.return, phases: .down) { press in
+                                        guard !press.modifiers.contains(.shift) else { return .ignored }
+                                        model.check()
+                                        return .handled
+                                    }
+                            } else {
+                                Text(model.answer.isEmpty ? "Your words will appear here…" : model.answer)
+                                    .font(.title3)
+                                    .foregroundStyle(model.answer.isEmpty ? .secondary : .primary)
+                                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
+                                    .textSelection(.enabled)
                             }
                         }
-                        if model.phase == .idle || model.phase == .ready {
-                            TextField("Your German translation", text: $model.answer, axis: .vertical)
-                                .textFieldStyle(.plain)
-                                .lineLimit(2...5)
-                                .font(.title3)
-                                .accessibilityLabel("Your German answer")
-                                .onSubmit(model.check)
-                                .onKeyPress(.return, phases: .down) { press in
-                                    guard !press.modifiers.contains(.shift) else { return .ignored }
-                                    model.check()
-                                    return .handled
+                        .padding(20)
+                        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    if let grade = model.grade, model.phase == .graded {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text("\(grade.score)").font(.system(size: 36, weight: .semibold, design: .rounded))
+                                Text("/ 5").font(.title3).foregroundStyle(.secondary)
+                                Spacer()
+                                Text(grade.score == 5 ? "Well done" : grade.score >= 3 ? "Keep going" : "Try once more")
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack(alignment: .top, spacing: 12) {
+                                Text(grade.germanAnswer).font(.title3).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Button { speech.toggle(text: grade.germanAnswer) } label: {
+                                    ZStack {
+                                        Image(systemName: speech.state == .idle ? "speaker.wave.2.fill" : "stop.fill")
+                                            .opacity(speech.state == .loading ? 0 : 1)
+                                        if speech.state == .loading { ProgressView().controlSize(.small) }
+                                    }.frame(width: 20, height: 20)
                                 }
-                        } else {
-                            Text(model.answer.isEmpty ? "Your words will appear here…" : model.answer)
-                                .font(.title3)
-                                .foregroundStyle(model.answer.isEmpty ? .secondary : .primary)
-                                .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
-                                .textSelection(.enabled)
+                                .buttonStyle(.bordered)
+                                .help(speech.buttonLabel)
+                                .accessibilityLabel(speech.buttonLabel)
+                            }
+                            if let message = speech.errorMessage {
+                                Text(message).font(.callout).foregroundStyle(.secondary)
+                            }
+                            if let tip = grade.tip, !tip.isEmpty {
+                                Text(tip).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            }
                         }
+                        .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                        .accessibilityElement(children: .contain)
                     }
-                    .padding(20)
-                    .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 16))
-                }
 
-                if let grade = model.grade, model.phase == .graded {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("\(grade.score)").font(.system(size: 36, weight: .semibold, design: .rounded))
-                            Text("/ 5").font(.title3).foregroundStyle(.secondary)
-                            Spacer()
-                            Text(grade.score == 5 ? "Well done" : grade.score >= 3 ? "Keep going" : "Try once more")
-                                .foregroundStyle(.secondary)
-                        }
-                        Text(grade.germanAnswer).font(.title3).textSelection(.enabled)
-                        if let tip = grade.tip, !tip.isEmpty {
-                            Text(tip).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        }
+                    if let message = model.errorMessage {
+                        Text(message).font(.callout).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).textSelection(.enabled)
                     }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                    .accessibilityElement(children: .combine)
-                }
 
-                if let message = model.errorMessage {
-                    Text(message).font(.callout).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center).textSelection(.enabled)
-                }
-
-                controls.controlSize(.large)
-                if model.phase == .idle && model.errorMessage == nil {
-                    Text("Type your translation or record it aloud.")
-                        .font(.callout).foregroundStyle(.secondary)
+                    controls.controlSize(.large)
+                    if model.phase == .idle && model.errorMessage == nil {
+                        Text("Type your translation or record it aloud.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: 620)
@@ -124,14 +155,14 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem { SettingsLink { Label("Settings", systemImage: "gearshape") } }
         }
-        .sheet(isPresented: Binding(get: { model.preparingTag != nil }, set: { if !$0 { model.cancelLesson() } })) {
+        .sheet(isPresented: Binding(get: { model.showsGeneration }, set: { if !$0 { model.cancelLesson() } })) {
             VStack(spacing: 20) {
                 if model.isPreparing {
                     ProgressView()
-                    Text("Preparing \(model.preparingCount) questions about \(model.preparingTag?.title.lowercased() ?? "this topic")…")
+                    Text(model.preparingMain ? "Preparing 10 fresh practice questions…" : "Preparing \(model.preparingCount) questions about \(model.preparingTag?.title.lowercased() ?? "this topic")…")
                 } else {
                     Text(model.lessonError ?? "Could not prepare the lesson.")
-                    Button("Retry") { if let tag = model.preparingTag { model.startLesson(tag) } }
+                    Button("Retry", action: model.retryGeneration)
                 }
                 Button("Cancel", action: model.cancelLesson).keyboardShortcut(.cancelAction)
             }
@@ -140,7 +171,12 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { model.saveProgress() }
         }
-        .onDisappear { model.leave() }
+        .task { model.prepareInitialBatchIfNeeded() }
+        .onChange(of: model.sessions.last?.id) { _, _ in speech.reset() }
+        .onChange(of: model.index) { _, _ in speech.reset() }
+        .onChange(of: model.phase) { _, phase in if phase != .graded { speech.reset() } }
+        .onChange(of: model.showsGeneration) { _, active in if active { speech.stop() } }
+        .onDisappear { speech.reset(); model.leave() }
     }
 
     @ViewBuilder private var controls: some View {
@@ -184,7 +220,7 @@ struct ContentView: View {
         case .graded:
             HStack(spacing: 12) {
                 Button("Try again", action: model.retry).buttonStyle(.bordered)
-                Button(model.isLast ? model.parentTitle.map { "Return to \($0)" } ?? "Start again" : "Next", action: model.next)
+                Button(model.isLast ? model.parentTitle.map { "Return to \($0)" } ?? "Next 10 questions" : "Next", action: model.next)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }

@@ -16,15 +16,15 @@ struct SettingsView: View {
             } header: {
                 Text("API keys")
             } footer: {
-                Text("Your keys are stored in this Mac’s Keychain. Audio is sent to ElevenLabs; your translation is sent to OpenAI for grading. OpenAI also prepares tagged lessons. Active lessons, answers, and feedback are saved on this Mac. Provider usage charges apply.")
+                Text("Your keys are stored in this Mac’s Keychain. Audio is sent to ElevenLabs for transcription; tapping the speaker sends the corrected German answer to ElevenLabs for speech generation; your translation is sent to OpenAI for grading. OpenAI also prepares main practice batches and tagged lessons. Active lessons, answers, and feedback are saved on this Mac. Provider usage charges apply.")
             }
             Section("Practice lessons") {
-                Picker("Questions per lesson", selection: $lessonSize) {
+                Picker("Questions per focused lesson", selection: $lessonSize) {
                     Text("5").tag(5)
                     Text("10").tag(10)
                     Text("20").tag(20)
                 }
-                Text("Applies to new lessons. Difficulty matches the question you start from.")
+                Text("Main practice always uses 10 questions. This setting applies to new tagged lessons; difficulty matches the source question.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

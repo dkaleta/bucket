@@ -5,20 +5,24 @@ A small native macOS app for practicing typed or spoken English-to-German transl
 ## Run
 
 1. Open `german.xcodeproj` in Xcode and run the `german` scheme on your Mac (macOS 26.2 or newer).
-2. Open **Settings** with the gear button or **⌘,**. Enter your OpenAI API key and, if you want to record, your ElevenLabs API key, then click **Save**. Keys are stored in this Mac's Keychain; clearing a field and saving removes that key.
+2. Open **Settings** with the gear button or **⌘,**. Enter your OpenAI API key and, if you want to record, your ElevenLabs API key, then click **Save**. Keys are stored in this Mac's Keychain; clearing a field and saving removes that key. Main practice needs the OpenAI key to prepare its first batch.
 3. Type or paste your German translation into **Your answer**, or click **Record** and allow microphone access to say it aloud. **Reset** discards the recording attempt and immediately records again; **Stop** finishes transcription. Typing does not require ElevenLabs or microphone access.
 4. Correct the transcript if needed and press **Enter** or click **Check answer**. **Shift+Enter** inserts a new line. You'll receive a score from **1 to 5 (5 is best)**, a natural German answer, and at most one important tip.
-5. Use **Try again** to clear your answer and type or record a new attempt, or **Next** (also **Enter** once the grade appears) to move on. The app remembers your position in the 100 sentences. After the last sentence, **Start again** returns to the beginning.
+5. Use **Try again** to clear your answer and type or record a new attempt, or **Next** (also **Enter** once the grade appears) to move on. The app remembers your current batch and answer. After question 10, **Next 10 questions** prepares a fresh batch.
 
 Audio goes directly to ElevenLabs Scribe v2 Realtime. Grading uses OpenAI's Responses API with `gpt-6.1-sol`, Ultrafast processing (`service_tier: "ultrafast"`), low reasoning effort, and `store: false`. Your provider accounts need access and available API usage; Ultrafast pricing and normal provider retention policies apply. The app saves active lessons, their positions, and current answers and feedback locally in Application Support under `GermanPractice/session.json`. It does not save audio or a completed-answer history. It assesses the transcribed translation, not pronunciation.
 
 Grading focuses on meaning and grammar: minor spelling mistakes with clear meaning should receive **4/5**. Capitalization and punctuation do not affect the score or feedback, whether you type or record. Feedback highlights only the most important correction.
 
-Hover over an English word to immediately see a German vocabulary hint below the sentence. All 100 sentences have built-in, context-specific hints that work offline. Nouns include articles, verbs generally show their infinitive, and expressions such as “get up” share a phrase hint.
+After grading, click the speaker beside the corrected German answer to hear it using ElevenLabs Flash v2.5 (`eleven_flash_v2_5`, German language code `de`). This uses your saved ElevenLabs key and generates speech only when clicked. Click again to cancel generation or stop playback. Replays of the current answer reuse audio in memory; moving to another question discards it. No generated audio is saved to disk. [ElevenLabs speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert).
+
+Hover over an English word to immediately see a German vocabulary hint below the sentence. Generated questions include context-specific hints that remain available offline once the batch is saved. Nouns include articles, verbs generally show their infinitive, and expressions such as “get up” share a phrase hint.
 
 Every question has topic and grammar tags. Click a tag to generate a focused lesson using GPT-6.1 Sol with Ultrafast and low reasoning effort. **Settings → Practice lessons** selects 5, 10 (default), or 20 questions for new lessons. Generated questions match the source question’s difficulty and include word hints. Provider usage charges apply.
 
-Tags inside a lesson can open another lesson. The breadcrumb shows your path; **Return to …** restores the interrupted question, answer, and feedback. The final question’s return button finishes the lesson; you can also return early. Active nested lessons resume after reopening the app without regeneration. Generation errors and cancellation preserve the original question.
+Tags inside a lesson can open another lesson. The breadcrumb shows your path; **Return to …** restores the interrupted question, answer, and feedback. The final question’s return button finishes the lesson; you can also return early. Main practice generates mixed beginner batches of exactly 10 questions. After the last grade, **Next 10 questions** prepares another set. Main practice excludes the original 100 prompts and the most recent 200 generated main prompts, saved locally for duplicate avoidance. The focused-lesson size setting does not affect main batches.
+
+Active nested lessons resume after reopening the app without regeneration. Generation errors and cancellation preserve the original question.
 
 If microphone access was denied, enable it in **System Settings → Privacy & Security → Microphone**. A connection failure keeps available text so you can edit it or record again. The app never submits an answer for grading until you click **Check answer**.
 
