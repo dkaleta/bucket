@@ -75,21 +75,21 @@ import Foundation
         let questions = payload.questions.enumerated().map { index, q in
             PracticeSentence(id: index + 1, english: q.english, german: q.german, tagIDs: q.tagIDs, wordHints: q.wordHints)
         }
-        try validate(questions, count: count)
-        let excluded = Set(excluding.map(normalize))
-        guard questions.allSatisfy({ (tag == nil || $0.tagIDs.contains(tag!)) && !excluded.contains(normalize($0.english)) }) else { throw invalid }
+        try validate(questions, count: count, excluding: excluding)
+        if let tag, !questions.allSatisfy({ $0.tagIDs.contains(tag) }) { throw invalid }
         return questions
     }
     static var invalid: PracticeError { .init(message: "The prepared lesson was incomplete or invalid. Please try again.") }
-    private static func normalize(_ text: String) -> String {
-        text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
-    }
-    static func validate(_ questions: [PracticeSentence], count: Int) throws {
+    static func validate(_ questions: [PracticeSentence], count: Int, excluding: [String] = []) throws {
+        let excluded = Set(excluding.map(QuestionHistory.normalize))
+        guard questions.allSatisfy({ !excluded.contains(QuestionHistory.normalize($0.english)) }) else {
+            throw PracticeError(message: "The generated set repeated recent questions. Please retry for a fresh set.")
+        }
         guard [5,10,20].contains(count), questions.count == count,
-              Set(questions.map { normalize($0.english) }).count == count,
+              Set(questions.map { QuestionHistory.normalize($0.english) }).count == count,
               Set(questions.map(\.id)).count == count else { throw invalid }
         for q in questions {
-            guard !normalize(q.english).isEmpty, !q.german.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            guard !QuestionHistory.normalize(q.english).isEmpty, !q.german.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   (2...4).contains(q.tagIDs.count), Set(q.tagIDs).count == q.tagIDs.count,
                   q.tagIDs.allSatisfy({ LessonTag.find($0) != nil }),
                   let hints = q.wordHints, hints.count == q.english.split(whereSeparator: \.isWhitespace).count,

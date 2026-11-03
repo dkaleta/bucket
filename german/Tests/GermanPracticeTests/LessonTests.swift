@@ -14,6 +14,7 @@ import Testing
 @MainActor private final class LessonGenerator: LessonGenerating {
     var counts: [Int] = []
     var exclusions: [[String]] = []
+    var repeated: [PracticeSentence]?
     var failure = false
     var suspended = false
     var waiter: CheckedContinuation<[PracticeSentence], Error>?
@@ -26,12 +27,13 @@ import Testing
         counts.append(count)
         exclusions.append(excluding)
         if failure { throw PracticeError(message: "Offline") }
+        if let repeated { return repeated }
         if suspended { return try await withCheckedThrowingContinuation { waiter = $0 } }
-        return questions(count, tag: tag.id)
+        return questions(count, tag: tag.id, offset: counts.count * 100)
     }
 }
-private func questions(_ count: Int = 5, tag: String = "when") -> [PracticeSentence] {
-    (1...count).map { PracticeSentence(id: $0, english: "When is train \($0)?", german: "Wann fährt Zug \($0)?", tagIDs: [tag, "travel"], wordHints: ["wann", "sein", "der Zug", "\($0)"]) }
+private func questions(_ count: Int = 5, tag: String = "when", offset: Int = 0) -> [PracticeSentence] {
+    (1...count).map { PracticeSentence(id: $0, english: "When is train \($0 + offset)?", german: "Wann fährt Zug \($0 + offset)?", tagIDs: [tag, "travel"], wordHints: ["wann", "sein", "der Zug", "\($0)"]) }
 }
 @MainActor private func settle(_ check: () -> Bool) async {
     for _ in 0..<1000 { if check() { return }; await Task.yield() }
@@ -126,6 +128,96 @@ private func questions(_ count: Int = 5, tag: String = "when") -> [PracticeSente
         #expect(restored.sessions[0].kind == .legacy)
         #expect(restored.sessions[1].kind == .focused)
         #expect(restored.sessions[1].answer == "draft")
+    }
+
+    @Test func reloadMidBatchPreservesUntilSuccessAndRejectsRepeats() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let generator = LessonGenerator()
+        let vm = model(generator, defaults: defaults)
+        vm.startMainBatch()
+        await settle { !vm.isPreparing }
+        vm.answer = "first"
+        vm.check()
+        await settle { vm.phase == .graded }
+        vm.next()
+        vm.answer = "keep draft"
+        let oldID = vm.sessionID
+        let oldQuestions = vm.sessions[0].questions
+        generator.repeated = oldQuestions
+        vm.reloadQuestions()
+        vm.reloadQuestions()
+        await settle { !vm.isPreparing }
+        #expect(generator.counts.count == 2)
+        #expect(vm.sessionID == oldID)
+        #expect(vm.index == 1)
+        #expect(vm.answer == "keep draft")
+        #expect(vm.lessonError?.contains("repeated") == true)
+        generator.repeated = nil
+        vm.retryGeneration()
+        await settle { !vm.isPreparing }
+        #expect(vm.sessionID != oldID)
+        #expect(vm.progress == "1 / 10")
+        #expect(vm.answer.isEmpty)
+        #expect(generator.exclusions.last?.contains(oldQuestions[0].english) == true)
+    }
+
+    @Test func reloadFocusedLessonKeepsParentAndHistoryAcrossRestart() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        defaults.set(5, forKey: "practice.lessonSize")
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "/session.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = PracticeSessionStore(url: url)
+        let generator = LessonGenerator()
+        let vm = model(generator, defaults: defaults, store: store)
+        vm.startMainBatch()
+        await settle { !vm.isPreparing }
+        vm.answer = "parent draft"
+        let parentID = vm.sessionID
+        vm.startLesson(LessonTag.find("when")!)
+        await settle { !vm.isPreparing }
+        let oldFocused = vm.sessions.last!.questions
+        defaults.set(20, forKey: "practice.lessonSize")
+        vm.reloadQuestions()
+        await settle { !vm.isPreparing }
+        #expect(vm.sessions.count == 2)
+        #expect(vm.progress == "1 / 5")
+        #expect(vm.sessions.last?.focusTagID == "when")
+        #expect(vm.recentPrompts.contains(oldFocused[0].english))
+        let restored = model(generator, defaults: defaults, store: store)
+        #expect(restored.recentPrompts.contains(oldFocused[0].english))
+        restored.returnToParent()
+        #expect(restored.sessionID == parentID)
+        #expect(restored.answer == "parent draft")
+        restored.startLesson(LessonTag.find("when")!)
+        await settle { !restored.isPreparing }
+        #expect(generator.exclusions.last?.contains(oldFocused[0].english) == true)
+    }
+
+    @Test func cancelReloadRetainsDraftAndDiscardsLateResult() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let generator = LessonGenerator()
+        let vm = model(generator, defaults: defaults)
+        vm.startMainBatch()
+        await settle { !vm.isPreparing }
+        let oldID = vm.sessionID
+        vm.answer = "draft"
+        generator.suspended = true
+        vm.reloadQuestions()
+        await settle { generator.waiter != nil }
+        vm.cancelLesson()
+        generator.waiter?.resume(returning: questions(10, offset: 10000))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(vm.sessionID == oldID)
+        #expect(vm.answer == "draft")
+        #expect(vm.canReloadQuestions)
+    }
+
+    @Test func normalizedRepeatHistory() throws {
+        let original = questions(5)
+        #expect(throws: PracticeError.self) {
+            try OpenAILessonGenerator.validate(original, count: 5, excluding: ["  WHEN IS TRAIN 1!!! "])
+        }
+        #expect(QuestionHistory.adding(["HELLO!"], to: ["hello.", "Goodbye."]) == ["Goodbye.", "HELLO!"])
     }
 
     @Test func catalogueAndCoverage() {

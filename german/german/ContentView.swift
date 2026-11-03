@@ -32,6 +32,13 @@ struct ContentView: View {
                             .font(.headline)
                         Spacer()
                         Text(model.progress).monospacedDigit().foregroundStyle(.secondary)
+                        Button(action: model.reloadQuestions) {
+                            Label("Reload", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!model.canReloadQuestions)
+                        .help("Replace this set with fresh questions")
+                        .accessibilityLabel("Reload questions")
                     }
                     .padding(.bottom, 16)
 

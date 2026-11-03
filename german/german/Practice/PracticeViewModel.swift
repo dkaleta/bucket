@@ -16,6 +16,7 @@ final class PracticeViewModel {
     private(set) var preparingCount = 10
     private(set) var recentPrompts: [String] = []
     private(set) var preparingMain = false
+    private var reloadingLesson = false
     private var pendingBatch = false
     private var didAttemptInitialBatch = false
     var needsMainBatch: Bool { sessions.isEmpty || (sessions.count == 1 && sessions[0].kind == .legacy) }
@@ -43,6 +44,14 @@ final class PracticeViewModel {
     var parentTitle: String? { sessions.dropLast().last?.title }
     var breadcrumbs: String { sessions.map(\.title).joined(separator: " › ") }
     var canStartLesson: Bool { hasQuestion && !showsGeneration && (phase == .idle || phase == .ready || phase == .graded) }
+    private var currentLessonTag: LessonTag? {
+        guard let current = sessions.last else { return nil }
+        return current.focusTagID.flatMap(LessonTag.find) ?? LessonTag.all.first { $0.title == current.title }
+    }
+    var canReloadQuestions: Bool { canStartLesson && (sessions.count == 1 || currentLessonTag != nil) }
+    private var excludedPrompts: [String] {
+        Sentences.all.map(\.english) + recentPrompts + sessions.flatMap { $0.questions.map(\.english) }
+    }
     var tags: [LessonTag] { sentence.tagIDs.compactMap(LessonTag.find) }
     var progress: String { "\(index + 1) / \(sessions.last!.questions.count)" }
     var isLast: Bool { index == sessions.last!.questions.count - 1 }
@@ -68,7 +77,7 @@ final class PracticeViewModel {
         do {
             if let restored = try sessionStore?.loadSnapshot() {
                 sessions = restored.sessions
-                recentPrompts = restored.recentPrompts ?? []
+                recentPrompts = QuestionHistory.adding(sessions.filter { $0.kind != .legacy }.flatMap { $0.questions.map(\.english) }, to: restored.recentPrompts ?? [])
                 pendingBatch = restored.pendingBatch ?? false
                 didAttemptInitialBatch = pendingBatch
                 restoreCurrent()
@@ -192,12 +201,12 @@ final class PracticeViewModel {
 
     func retryGeneration() {
         if preparingMain { startMainBatch() }
-        else if let tag = preparingTag { startLesson(tag) }
+        else if let tag = preparingTag { startLesson(tag, replacingCurrent: reloadingLesson) }
     }
 
     func startMainBatch() {
         guard !isPreparing, sessions.count <= 1,
-              needsMainBatch || (phase == .graded && isLast) else { return }
+              needsMainBatch || canStartLesson || (preparingMain && (phase == .idle || phase == .ready || phase == .graded)) else { return }
         didAttemptInitialBatch = true
         preparingMain = true
         pendingBatch = true
@@ -207,7 +216,7 @@ final class PracticeViewModel {
         saveProgress()
         let id = UUID()
         generationID = id
-        let excluded = Sentences.all.map(\.english) + recentPrompts + (sessions.first?.questions.map(\.english) ?? [])
+        let excluded = excludedPrompts
         generationTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -215,9 +224,9 @@ final class PracticeViewModel {
                 guard !key.isEmpty else { throw PracticeError(message: "Add your OpenAI API key in Settings to prepare practice questions.") }
                 let questions = try await generator.generate(request: .mixedBeginner, count: 10, excluding: excluded, apiKey: key)
                 guard generationID == id, !Task.isCancelled else { return }
-                try OpenAILessonGenerator.validate(questions, count: 10)
+                try OpenAILessonGenerator.validate(questions, count: 10, excluding: excluded)
                 let next = PracticeSession(title: "German practice", questions: questions, kind: .mixed)
-                let history = Array((recentPrompts + questions.map(\.english)).suffix(200))
+                let history = QuestionHistory.adding(questions.map(\.english), to: recentPrompts)
                 // Persist the validated replacement before discarding the current batch.
                 try sessionStore?.save([next], recentPrompts: history)
                 cancelWork()
@@ -236,18 +245,27 @@ final class PracticeViewModel {
         }
     }
 
-    func startLesson(_ tag: LessonTag) {
+    func reloadQuestions() {
+        guard canReloadQuestions else { return }
+        if sessions.count == 1 { startMainBatch() }
+        else if let tag = currentLessonTag { startLesson(tag, replacingCurrent: true) }
+    }
+
+    func startLesson(_ tag: LessonTag, replacingCurrent: Bool = false) {
         guard canStartLesson || (preparingTag?.id == tag.id && !isPreparing) else { return }
+        guard !replacingCurrent || sessions.count > 1 else { return }
+        reloadingLesson = replacingCurrent
         saveProgress()
         preparingTag = tag
         lessonError = nil
         isPreparing = true
         let id = UUID()
         generationID = id
-        let source = sentence
-        let excluded = sessions.last!.questions.map(\.english)
+        let parent = replacingCurrent ? sessions[sessions.count - 2] : sessions.last!
+        let source = parent.questions[parent.index]
+        let excluded = excludedPrompts
         let preference = defaults.integer(forKey: "practice.lessonSize")
-        let count = [5,10,20].contains(preference) ? preference : 10
+        let count = replacingCurrent ? sessions.last!.questions.count : ([5,10,20].contains(preference) ? preference : 10)
         preparingCount = count
         generationTask = Task { [weak self] in
             guard let self else { return }
@@ -256,9 +274,16 @@ final class PracticeViewModel {
                 guard !key.isEmpty else { throw PracticeError(message: "Add your OpenAI API key in Settings to prepare a lesson.") }
                 let questions = try await generator.generate(request: .focused(tag, source), count: count, excluding: excluded, apiKey: key)
                 guard generationID == id, !Task.isCancelled else { return }
-                try OpenAILessonGenerator.validate(questions, count: count)
+                try OpenAILessonGenerator.validate(questions, count: count, excluding: excluded)
+                let next = PracticeSession(title: tag.title, questions: questions, kind: .focused, focusTagID: tag.id)
+                var updated = sessions
+                if replacingCurrent { updated[updated.count - 1] = next }
+                else { updated.append(next) }
+                let history = QuestionHistory.adding(questions.map(\.english), to: recentPrompts)
+                try sessionStore?.save(updated, recentPrompts: history, pendingBatch: pendingBatch)
                 cancelWork()
-                sessions.append(PracticeSession(title: tag.title, questions: questions, kind: .focused))
+                sessions = updated
+                recentPrompts = history
                 restoreCurrent()
                 preparingTag = nil
                 isPreparing = false
@@ -276,6 +301,7 @@ final class PracticeViewModel {
         generationTask?.cancel()
         generationTask = nil
         preparingTag = nil
+        reloadingLesson = false
         preparingMain = false
         isPreparing = false
         lessonError = nil

@@ -20,7 +20,9 @@ Hover over an English word to immediately see a German vocabulary hint below the
 
 Every question has topic and grammar tags. Click a tag to generate a focused lesson using GPT-6.1 Sol with Ultrafast and low reasoning effort. **Settings → Practice lessons** selects 5, 10 (default), or 20 questions for new lessons. Generated questions match the source question’s difficulty and include word hints. Provider usage charges apply.
 
-Tags inside a lesson can open another lesson. The breadcrumb shows your path; **Return to …** restores the interrupted question, answer, and feedback. The final question’s return button finishes the lesson; you can also return early. Main practice generates mixed beginner batches of exactly 10 questions. After the last grade, **Next 10 questions** prepares another set. Main practice excludes the original 100 prompts and the most recent 200 generated main prompts, saved locally for duplicate avoidance. The focused-lesson size setting does not affect main batches.
+Tags inside a lesson can open another lesson. The breadcrumb shows your path; **Return to …** restores the interrupted question, answer, and feedback. The final question’s return button finishes the lesson; you can also return early. Main practice generates mixed beginner batches of exactly 10 questions. After the last grade, **Next 10 questions** prepares another set. Main practice excludes the original 100 prompts and the most recent 200 generated prompts from main batches and focused lessons, saved locally for duplicate avoidance. The focused-lesson size setting does not affect main batches.
+
+**Reload**, beside the question counter, replaces the current set with fresh questions and starts at 1. In a focused lesson it keeps the topic, question count, and saved parent lesson. The current set and answer stay intact if generation fails or is cancelled. Reopening the app resumes saved questions; it does not reload them automatically.
 
 Active nested lessons resume after reopening the app without regeneration. Generation errors and cancellation preserve the original question.
 

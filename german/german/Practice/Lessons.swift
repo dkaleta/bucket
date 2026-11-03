@@ -71,6 +71,7 @@ struct PracticeSession: Codable {
     var answer = ""
     var grade: Grade?
     var kind: Kind? = nil
+    var focusTagID: String? = nil
     enum Kind: String, Codable { case legacy, mixed, focused }
 }
 
@@ -120,5 +121,20 @@ enum PracticeGenerationRequest {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let snapshot = Snapshot(sessions: sessions, recentPrompts: Array(recentPrompts.suffix(200)), pendingBatch: pendingBatch)
         try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+    }
+}
+
+/// A bounded, shared history for both main practice and focused lessons.
+enum QuestionHistory {
+    static func normalize(_ text: String) -> String {
+        text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }.joined(separator: " ")
+    }
+    static func adding(_ prompts: [String], to history: [String]) -> [String] {
+        var seen = Set<String>()
+        return Array((history + prompts).reversed().filter {
+            let key = normalize($0)
+            return !key.isEmpty && seen.insert(key).inserted
+        }.prefix(200).reversed())
     }
 }
