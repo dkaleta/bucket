@@ -7,7 +7,7 @@ let package = Package(
     products: [.library(name: "GermanPractice", targets: ["GermanPractice"])],
     targets: [
         .target(name: "GermanPractice", path: "german",
-                exclude: ["ContentView.swift", "germanApp.swift", "Assets.xcassets", "Canvas", "Sentences", "Settings", "german.entitlements"],
+                exclude: ["ContentView.swift", "TutorConversationView.swift", "germanApp.swift", "Assets.xcassets", "Canvas", "Sentences", "Settings", "german.entitlements"],
                 sources: ["Practice", "Services"],
                 swiftSettings: [.defaultIsolation(MainActor.self)]),
         .testTarget(name: "GermanPracticeTests", dependencies: ["GermanPractice"], path: "Tests/GermanPracticeTests")

@@ -16,6 +16,13 @@ Grading focuses on meaning and grammar: minor spelling mistakes with clear meani
 
 After grading, click the speaker beside the corrected German answer to hear it using ElevenLabs Flash v2.5 (`eleven_flash_v2_5`, German language code `de`). This uses your saved ElevenLabs key and generates speech only when clicked. Click again to cancel generation or stop playback. Replays of the current answer reuse audio in memory; moving to another question discards it. No generated audio is saved to disk. [ElevenLabs speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert).
 
+Click **Ask tutor** to start a spoken conversation about the current exercise. The tutor receives the question, reference translation, lesson tags, your answer, and any score and feedback. Ask follow-up questions in English or German. Replies play aloud and both speakers have captions. You can interrupt by speaking while the tutor talks; **Mute** stops outgoing microphone audio, and **End conversation** / **Close** stops the microphone and playback. Exercise progress and grades stay unchanged.
+
+The tutor uses [GPT-Live](https://developers.openai.com/api/docs/guides/live) (`gpt-live-1`, Marin voice) over **WebRTC**, with `POST /v1/live/sessions`. It uses your saved OpenAI key and needs GPT-Live access. The native app creates the session; the key never enters the embedded audio document. WebKit handles microphone capture, echo cancellation, automatic gain, and playback. The microphone stays active while the tutor speaks. More involved grammar questions can use OpenAI-managed Responses delegation to `gpt-6.1-sol` with low reasoning effort. Grading, question generation, and ElevenLabs pronunciation playback keep their existing models.
+
+The selected Settings microphone is matched to the WebRTC input. The panel shows input/output names, microphone activity, and reply audio status. **Test speaker** plays a local chime on the system output. Captions preserve separate speaker timelines during overlapping speech. Closing stops local media immediately and requests graceful session finalization. The session uses `store: false`; audio and captions are not saved locally. Provider voice-duration and delegated-model usage charges apply.
+
+
 Hover over an English word to immediately see a German vocabulary hint below the sentence. Generated questions include context-specific hints that remain available offline once the batch is saved. Nouns include articles, verbs generally show their infinitive, and expressions such as “get up” share a phrase hint.
 
 Every question has topic and grammar tags. Click a tag to generate a focused lesson using GPT-6.1 Sol with Ultrafast and low reasoning effort. **Settings → Practice lessons** selects 5, 10 (default), or 20 questions for new lessons. Generated questions match the source question’s difficulty and include word hints. Provider usage charges apply.
@@ -28,6 +35,8 @@ Active nested lessons resume after reopening the app without regeneration. Gener
 
 If microphone access was denied, enable it in **System Settings → Privacy & Security → Microphone**. A connection failure keeps available text so you can edit it or record again. The app never submits an answer for grading until you click **Check answer**.
 
+**Settings → Microphone test** provides a separate local capture check. Choose a **Microphone**, click **Record 7-second test**, speak, then use **Play recording**. The live meter and elapsed audio duration distinguish missing audio from silent audio. You can stop early or refresh the device list to compare another microphone. Permission status and a shortcut to microphone permissions are shown in the same section. This test checks the selected microphone through native capture; the tutor uses WebRTC echo-cancelled capture of that same device. It makes no API calls and needs no API keys. Starting it stops any active tutor or answer recording. The clip stays in memory and is discarded on closing Settings, changing the test input, or starting another test. The selected microphone is saved and used by new tutor conversations too; macOS system input settings are unchanged.
+
 ## Development
 
 No third-party dependencies are required. Build the app through Xcode, or:
@@ -37,9 +46,18 @@ xcodebuild -project german.xcodeproj -scheme german -configuration Debug build
 swift test
 ```
 
-The Swift package runs isolated tests for the practice state machine, sentence data, transcript assembly, and grading request/response handling without API keys or provider calls. Microphone capture and live provider behavior require an end-to-end check with configured keys.
+The Swift package runs isolated tests for the practice state machine, sentence data, transcript assembly, grading, and voice tutor context, streaming, interruptions, and cleanup without API keys or provider calls. Microphone capture and live provider behavior require an end-to-end check with configured keys.
 
 A Debug build launched with `--lesson-preview` uses isolated local lesson and grading fixtures for UI checks, without reading API keys or saving user progress.
+
+For an opt-in hardware check, launch a Debug build with `--tutor-audio-check` after granting microphone permission to the app. It captures and discards two seconds of microphone input, plays a silent buffer through the tutor's output path, and reports whether both worked. It makes no network requests, reads no keys, and saves no audio or practice state. This exercises the shared microphone capture and separate reply playback engine.
+
+The opt-in Realtime regression sends a locally synthesized test question using the saved OpenAI key and checks server speech detection, transcription, and returned speech. It uses no microphone and incurs normal API usage:
+
+```sh
+say -v Samantha -o /tmp/german-voice-question.aiff 'How do I say I am closing the window in German?'
+GERMAN_VOICE_LIVE_TESTS=1 GERMAN_VOICE_FIXTURE=/tmp/german-voice-question.aiff swift test --filter VoiceTutorLiveTests
+```
 
 The opt-in grading regression makes five real OpenAI requests using the key saved in German Practice Settings. It checks minor typos, capitalization, alternative wording, and a changed meaning:
 
@@ -104,3 +122,5 @@ On-demand loading has separate state, cache, request/response, and live coverage
 ```sh
 TEST_RUNNER_KONJUGO_LIVE_TESTS=1 xcodebuild -project german.xcodeproj -scheme KonjuGo -destination 'platform=macOS' -only-testing:KonjuGoTests/OnDemandLiveTests test
 ```
+
+For an opt-in GPT-Live WebRTC smoke check, build the Debug app and launch its executable with `--gpt-live-check` and `GERMAN_LIVE_FIXTURE_BASE64` containing base64-encoded synthesized audio (AAC keeps the environment small). WebKit briefly opens and stops local microphone capture to authorize network candidates; only the synthetic track is sent to OpenAI. This uses the saved key and incurs provider usage. The check requires input captions, output captions, and non-silent incoming media. To test spoken interruption, also set `GERMAN_LIVE_INTERRUPT_BASE64` to synthesized “Stop. Just say Guten Morgen.” It injects that phrase while reply audio is active and verifies that Live follows the new request. A successful media check does not establish physical speaker audibility. The older `GERMAN_VOICE_LIVE_TESTS` check covers the legacy Realtime adapter only, not the active tutor.

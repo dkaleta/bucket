@@ -3,6 +3,24 @@ import Foundation
 
 /// Isolated UI fixture: never reads credentials, saves user state, or contacts providers.
 @MainActor enum LessonPreview {
+    static func tutor() -> VoiceTutor {
+        VoiceTutor(credentials: Keys(), makeConnection: { PreviewTutor() })
+    }
+    private final class PreviewTutor: TutorConnecting {
+        var onEvent: ((TutorEvent) -> Void)?
+        var onFailure: ((Error) -> Void)?
+        func connect(context: TutorContext, apiKey: String) async throws {
+            try await Task.sleep(for: .milliseconds(300))
+            onEvent?(.status(.listening))
+            onEvent?(.input(level: 0.45, secondsSent: 3))
+            onEvent?(.transcript(id: "preview", role: .tutor,
+                                text: "Preview: ready to discuss ‘\(context.question)’ and your answer. Microphone and network are disabled in this preview.", append: false))
+        }
+        func setMuted(_ muted: Bool) {}
+        func testSpeaker() throws { onEvent?(.playback("Preview: speaker test completed")) }
+        func interrupt() async throws {}
+        func disconnect() {}
+    }
     static func speech() -> AnswerSpeech {
         AnswerSpeech(credentials: Keys(), generator: PreviewSpeech(), player: PreviewPlayer())
     }

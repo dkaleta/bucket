@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    @State private var tutorContext: TutorContext?
     @State private var speech: AnswerSpeech = {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--lesson-preview") { return LessonPreview.speech() }
@@ -148,6 +149,16 @@ struct ContentView: View {
                     }
 
                     controls.controlSize(.large)
+                    Button {
+                        speech.stop()
+                        tutorContext = TutorContext(lesson: model.title, sentence: model.sentence,
+                                                    answer: model.answer, grade: model.grade)
+                    } label: {
+                        Label("Ask tutor", systemImage: "mic.bubble.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!model.canStartLesson)
+                    .help("Start a voice conversation about this question and your answer")
                     if model.phase == .idle && model.errorMessage == nil {
                         Text("Type your translation or record it aloud.")
                             .font(.callout).foregroundStyle(.secondary)
@@ -178,12 +189,19 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { model.saveProgress() }
         }
+        .sheet(item: $tutorContext) { context in
+            TutorConversationView(context: context)
+        }
         .task { model.prepareInitialBatchIfNeeded() }
         .onChange(of: model.sessions.last?.id) { _, _ in speech.reset() }
         .onChange(of: model.index) { _, _ in speech.reset() }
         .onChange(of: model.phase) { _, phase in if phase != .graded { speech.reset() } }
         .onChange(of: model.showsGeneration) { _, active in if active { speech.stop() } }
-        .onDisappear { speech.reset(); model.leave() }
+        .onDisappear { tutorContext = nil; speech.reset(); model.leave() }
+        .onReceive(NotificationCenter.default.publisher(for: MicrophoneTest.willStart)) { _ in
+            speech.stop()
+            if model.phase == .connecting || model.phase == .recording || model.phase == .finalizing { model.leave() }
+        }
     }
 
     @ViewBuilder private var controls: some View {

@@ -2,12 +2,12 @@ import AVFoundation
 import Foundation
 
 // The audio tap owns this converter and invokes it serially, away from the main actor.
-nonisolated private final class PCMEncoder: @unchecked Sendable {
+nonisolated final class PCMEncoder: @unchecked Sendable {
     let converter: AVAudioConverter
     let outputFormat: AVAudioFormat
 
-    init(inputFormat: AVAudioFormat) throws {
-        guard let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+    init(inputFormat: AVAudioFormat, sampleRate: Double = 16_000) throws {
+        guard let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
                                          channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: inputFormat, to: output) else {
             throw PracticeError(message: "This microphone's audio format is not supported.")
@@ -17,7 +17,7 @@ nonisolated private final class PCMEncoder: @unchecked Sendable {
     }
 
     func encode(_ input: AVAudioPCMBuffer) throws -> Data {
-        let capacity = AVAudioFrameCount(ceil(Double(input.frameLength) * 16_000 / input.format.sampleRate)) + 64
+        let capacity = AVAudioFrameCount(ceil(Double(input.frameLength) * outputFormat.sampleRate / input.format.sampleRate)) + 64
         guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: capacity) else {
             throw PracticeError(message: "Could not prepare microphone audio.")
         }
