@@ -97,8 +97,7 @@ struct KitchenRootView: View {
             .background(KitchenTheme.paper)
         case .pantry:
             PantryView(model: pantry, makeScan: { dependencies.scanViewModel($0) })
-                .safeAreaInset(edge: .top, spacing: 0) { phoneHeader }
-                .background(KitchenTheme.paper)
+                .background(KitchenTheme.surface)
         case .map:
             DishMapView(state: mapState)
         }

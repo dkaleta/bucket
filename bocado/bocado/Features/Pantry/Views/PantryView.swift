@@ -8,7 +8,6 @@ struct PantryView: View {
     let makeScan: (PantryIngredient?) -> PantryScanViewModel
 
     @Query(sort: \PantryIngredient.name) private var ingredients: [PantryIngredient]
-    @FocusState private var searchFocused: Bool
     @State private var scanning = false
     @State private var sourceItem: PantryIngredient?
 
@@ -17,68 +16,24 @@ struct PantryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                KitchenHeading(
-                    title: Text("Your \(Text("pantry").italic())"),
-                    subtitle: "\(ingredients.count) ingredients in your kitchen."
-                )
-                .padding(.horizontal, 24)
-
-                Button {
-                    scanning = true
-                } label: {
-                    Label("Scan ingredients", systemImage: "camera.viewfinder")
-                        .font(.headline)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(KitchenTheme.ink)
-                .padding(.horizontal, 24)
-
-                if ingredients.isEmpty {
-                    ContentUnavailableView("Your pantry is empty", systemImage: "basket",
-                        description: Text("Scan a shelf, spice rack or fridge to start your list."))
-                } else {
-                    if useSoonCount > 0 {
-                        useSoonButton.padding(.horizontal, 24)
-                    }
-                    if let name = model.icons.currentName {
-                        HStack {
-                            ProgressView().controlSize(.small)
-                            Text("Drawing icon for \(name)…").font(.footnote)
-                        }
-                        .padding(.horizontal, 24)
-                    } else if let error = model.icons.errorMessage {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(error).font(.footnote)
-                            Button("Retry pantry icons") { model.icons.start() }
-                        }
-                        .padding(.horizontal, 24)
-                    }
-                    searchField.padding(.horizontal, 24)
-                    filterBar
-                }
-
-                let matches = model.filteredIngredients(ingredients)
-                if !ingredients.isEmpty && matches.isEmpty && !model.query.isEmpty {
-                    ContentUnavailableView.search(text: model.query)
-                }
-                VStack(spacing: 22) {
-                    ForEach(PantryArea.allCases) { area in
-                        let rows = matches.filter { $0.area == area }
-                        if !rows.isEmpty {
-                            section(area, ingredients: rows)
+        NavigationStack {
+            content
+                .navigationTitle("Pantry")
+                .navigationSubtitle(ingredients.isEmpty ? "" : "\(ingredients.count) ingredients")
+                .searchable(text: $model.searchText, prompt: "Search ingredients")
+                .autocorrectionDisabled()
+                .toolbar {
+                    if !ingredients.isEmpty {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Scan ingredients", systemImage: "camera.viewfinder") {
+                                scanning = true
+                            }
                         }
                     }
                 }
-                .padding(.horizontal, 24)
-            }
-            .padding(.vertical, 24)
-            .frame(maxWidth: 680)
-            .frame(maxWidth: .infinity)
         }
+        .foregroundStyle(KitchenTheme.text)
+        .tint(KitchenTheme.accent)
         .alert("Couldn’t update your pantry", isPresented: Binding(
             get: { model.error != nil }, set: { if !$0 { model.error = nil } }
         )) {
@@ -94,132 +49,150 @@ struct PantryView: View {
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(KitchenTheme.muted)
-                .accessibilityHidden(true)
-            TextField("Search ingredients", text: $model.searchText)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                .submitLabel(.search)
-                .onSubmit { searchFocused = false }
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("pantry-search")
-            if !model.searchText.isEmpty {
-                Button {
-                    model.searchText = ""
-                    searchFocused = true
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(KitchenTheme.muted)
-                        .frame(minWidth: 36, minHeight: 44)
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if ingredients.isEmpty {
+                    emptyState.padding(.horizontal, 16)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        filterBar
+                        iconStatus.padding(.horizontal, 16)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
+
+                let matches = model.filteredIngredients(ingredients)
+                if !ingredients.isEmpty && matches.isEmpty && !model.query.isEmpty {
+                    ContentUnavailableView.search(text: model.query)
+                }
+                VStack(spacing: 32) {
+                    ForEach(PantryArea.allCases) { area in
+                        let rows = matches.filter { $0.area == area }
+                        if !rows.isEmpty {
+                            section(area, ingredients: rows)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
             }
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 4)
-        .frame(minHeight: 46)
-        .background(KitchenTheme.cream, in: .rect(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(searchFocused ? KitchenTheme.ink : KitchenTheme.line)
-                .allowsHitTesting(false)
-        }
+        .background(KitchenTheme.surface)
     }
 
-    private var useSoonButton: some View {
-        Button {
-            model.filter = model.filter == .useSoon ? .all : .useSoon
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "hourglass")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 40, height: 40)
-                    .background(KitchenTheme.cream.opacity(0.72), in: Circle())
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Use soon")
-                        .font(.subheadline.weight(.bold))
-                    Text("\(useSoonCount) ingredients to cook with first")
-                        .font(.footnote)
-                        .foregroundStyle(KitchenTheme.muted)
-                }
-
-                Spacer(minLength: 6)
-                Image(systemName: model.filter == .useSoon ? "checkmark" : "arrow.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .accessibilityHidden(true)
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Nothing here yet")
+                    .font(.title3.weight(.semibold))
+                Text("Scan a shelf, spice rack or fridge to start your list.")
+                    .font(.subheadline)
+                    .foregroundStyle(KitchenTheme.secondary)
             }
-            .padding(12)
-            .padding(.trailing, 4)
-            .background(KitchenTheme.butter, in: .rect(cornerRadius: 16))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(model.filter == .useSoon ? KitchenTheme.ink : .clear)
+            Button {
+                scanning = true
+            } label: {
+                Label("Scan ingredients", systemImage: "camera.viewfinder")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(KitchenTheme.accent, in: .rect(cornerRadius: 14))
+                    .contentShape(.rect(cornerRadius: 14))
             }
-            .contentShape(.rect(cornerRadius: 16))
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(model.filter == .useSoon ? [.isSelected] : [])
-        .accessibilityHint(model.filter == .useSoon ? "Show all ingredients" : "Show only ingredients to use soon")
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder private var iconStatus: some View {
+        if let name = model.icons.currentName {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Drawing icon for \(name)…")
+            }
+            .font(.footnote)
+            .foregroundStyle(KitchenTheme.secondary)
+        } else if let error = model.icons.errorMessage {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(error).foregroundStyle(KitchenTheme.secondary)
+                Button("Retry pantry icons") { model.icons.start() }
+                    .fontWeight(.semibold)
+            }
+            .font(.footnote)
+        }
     }
 
     private var filterBar: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 filterButton("All", value: .all)
+                if useSoonCount > 0 {
+                    filterButton("Use soon", value: .useSoon, count: useSoonCount)
+                }
                 ForEach(PantryArea.allCases) { area in
                     filterButton(area.rawValue, value: .area(area))
                 }
             }
         }
-        .contentMargins(.horizontal, 24, for: .scrollContent)
+        .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollIndicators(.hidden)
     }
 
-    private func filterButton(_ title: String, value: PantryFilter) -> some View {
-        Button {
-            model.filter = value
+    private func filterButton(_ title: String, value: PantryFilter, count: Int? = nil) -> some View {
+        let selected = model.filter == value
+        return Button {
+            model.filter = selected && value == .useSoon ? .all : value
         } label: {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .padding(.horizontal, 15)
-                .padding(.vertical, 9)
-                .foregroundStyle(model.filter == value ? KitchenTheme.cream : KitchenTheme.ink)
-                .background(model.filter == value ? KitchenTheme.ink : KitchenTheme.cream, in: Capsule())
-                .overlay {
-                    Capsule().strokeBorder(model.filter == value ? .clear : KitchenTheme.line)
+            HStack(spacing: 6) {
+                if count != nil {
+                    Circle()
+                        .fill(selected ? .white : KitchenTheme.accent)
+                        .frame(width: 6, height: 6)
+                        .accessibilityHidden(true)
                 }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                Text(title)
+                if let count {
+                    Text("\(count)")
+                        .monospacedDigit()
+                        .opacity(0.6)
+                        .accessibilityLabel("\(count) ingredients")
+                }
+            }
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .foregroundStyle(selected ? .white : KitchenTheme.text)
+            .background(selected ? KitchenTheme.text : .clear, in: Capsule())
+            .overlay {
+                Capsule().strokeBorder(selected ? .clear : KitchenTheme.hairline)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(model.filter == value ? [.isSelected] : [])
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private func section(_ area: PantryArea, ingredients: [PantryIngredient]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(area.rawValue)
-                    .font(.system(.title2, design: .serif, weight: .semibold))
+                    .font(.title3.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
-                Spacer()
                 Text("\(ingredients.count)")
-                    .font(.footnote.monospacedDigit().weight(.medium))
-                    .foregroundStyle(KitchenTheme.muted)
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(KitchenTheme.secondary)
                     .accessibilityLabel("\(ingredients.count) ingredients")
             }
-            .padding(.horizontal, 2)
 
             VStack(spacing: 0) {
                 ForEach(ingredients) { ingredient in
                     if ingredient.id != ingredients.first?.id {
                         Rectangle()
-                            .fill(KitchenTheme.line)
+                            .fill(KitchenTheme.hairline)
                             .frame(height: 1)
                             .padding(.leading, 62)
                     }
@@ -239,10 +212,6 @@ struct PantryView: View {
                         }
                 }
             }
-            .background(KitchenTheme.cream, in: .rect(cornerRadius: 17))
-            .overlay {
-                RoundedRectangle(cornerRadius: 17).strokeBorder(KitchenTheme.line)
-            }
         }
     }
 }
@@ -251,7 +220,7 @@ private struct IngredientRow: View {
     let ingredient: PantryIngredient
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 14) {
             Group {
                 if let png = ingredient.iconPNG,
                    let source = CGImageSourceCreateWithData(png as CFData, nil),
@@ -259,34 +228,36 @@ private struct IngredientRow: View {
                     Image(decorative: image, scale: 1)
                         .resizable()
                         .scaledToFit()
+                        .padding(5)
                 } else {
-                    Text(ingredient.emoji).font(.system(size: 20))
+                    Text(ingredient.emoji).font(.system(size: 22))
                 }
             }
-            .frame(width: 38, height: 38)
-            .background(KitchenTheme.paper, in: .rect(cornerRadius: 11))
+            .frame(width: 48, height: 48)
+            .background(KitchenTheme.fill, in: .rect(cornerRadius: 14))
             .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(ingredient.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.medium))
                 if ingredient.useSoon {
-                    Label("Use soon", systemImage: "hourglass")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(red: 0.47, green: 0.31, blue: 0.12))
+                    Text("Use soon")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(KitchenTheme.accent)
                 }
             }
             Spacer(minLength: 8)
             Text(ingredient.quantity)
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(KitchenTheme.muted)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(KitchenTheme.secondary)
                 .multilineTextAlignment(.trailing)
             Image(systemName: ingredient.sourcePhoto == nil ? "chevron.right" : "photo")
-                .foregroundStyle(KitchenTheme.muted)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(KitchenTheme.secondary.opacity(0.55))
+                .frame(width: 18)
                 .accessibilityHidden(true)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 9)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
     }
 }
@@ -313,8 +284,5 @@ private struct IngredientRow: View {
 
     PantryView(model: dependencies.pantryViewModel(), makeScan: { dependencies.scanViewModel($0) })
         .modelContainer(dependencies.storage)
-        .foregroundStyle(KitchenTheme.ink)
-        .tint(KitchenTheme.ink)
-        .background(KitchenTheme.paper)
         .preferredColorScheme(.light)
 }

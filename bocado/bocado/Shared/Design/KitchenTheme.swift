@@ -8,6 +8,14 @@ enum KitchenTheme {
     static let sage = Color(red: 0.89, green: 0.91, blue: 0.85)
     static let butter = Color(red: 0.97, green: 0.92, blue: 0.76)
     static let line = Color(red: 0.89, green: 0.87, blue: 0.82)
+
+    // Redesign palette: neutral surfaces with one warm accent. Pantry uses it first.
+    static let accent = Color(red: 0.878, green: 0.043, blue: 0.255)
+    static let surface = Color.white
+    static let fill = Color(red: 0.965, green: 0.965, blue: 0.965)
+    static let text = Color(red: 0.133, green: 0.133, blue: 0.133)
+    static let secondary = Color(red: 0.416, green: 0.416, blue: 0.416)
+    static let hairline = Color(red: 0.92, green: 0.92, blue: 0.92)
 }
 
 struct KitchenHeading: View {
