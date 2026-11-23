@@ -72,12 +72,22 @@ struct PracticeSession: Codable {
     var grade: Grade?
     var kind: Kind? = nil
     var focusTagID: String? = nil
+    var customRequest: CustomLessonRequest? = nil
     enum Kind: String, Codable { case legacy, mixed, focused }
 }
 
 enum PracticeGenerationRequest {
     case mixedBeginner
     case focused(LessonTag, PracticeSentence)
+    case custom(CustomLessonRequest)
+}
+
+/// Keep the originating exercise so reloads and restored lessons resolve “like this” consistently.
+struct CustomLessonRequest: Codable {
+    let description: String
+    let source: PracticeSentence
+    let learnerAnswer: String
+    let grade: Grade?
 }
 
 @MainActor protocol LessonGenerating {

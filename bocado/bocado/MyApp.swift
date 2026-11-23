@@ -1,9 +1,11 @@
+import SwiftData
 import SwiftUI
 
 @main struct MyApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            KitchenPrototypeView()
         }
+        .modelContainer(for: PantryIngredient.self)
     }
 }

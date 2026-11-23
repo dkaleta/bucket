@@ -1,21 +1,25 @@
 import MapKit
 import SwiftUI
 
+@Observable final class DishMapState {
+    fileprivate var camera: MapCameraPosition = .region(Dish.valley)
+    fileprivate var selectedDish: Dish?
+}
+
 struct ContentView: View {
-    @State private var camera: MapCameraPosition = .region(Dish.valley)
-    @State private var selectedDish: Dish?
+    @Bindable var state: DishMapState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let ink = Color(red: 0.15, green: 0.24, blue: 0.20)
 
     var body: some View {
-        Map(position: $camera) {
+        Map(position: $state.camera) {
             ForEach(Dish.samples) { dish in
                 Annotation(dish.name, coordinate: dish.coordinate, anchor: .bottom) {
                     Button {
                         select(dish)
                     } label: {
-                        DishPin(dish: dish, isSelected: selectedDish?.id == dish.id)
+                        DishPin(dish: dish, isSelected: state.selectedDish?.id == dish.id)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("\(dish.name), near \(dish.village)")
@@ -56,7 +60,7 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
-                if let dish = selectedDish {
+                if let dish = state.selectedDish {
                     detail(for: dish)
                 } else {
                     VStack(alignment: .leading, spacing: 5) {
@@ -83,12 +87,12 @@ struct ContentView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .foregroundStyle(selectedDish?.id == dish.id ? .white : ink)
-                            .background(selectedDish?.id == dish.id ? ink : ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+                            .foregroundStyle(state.selectedDish?.id == dish.id ? .white : ink)
+                            .background(state.selectedDish?.id == dish.id ? ink : ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Explore \(dish.name)")
-                        .accessibilityAddTraits(selectedDish?.id == dish.id ? [.isSelected] : [])
+                        .accessibilityAddTraits(state.selectedDish?.id == dish.id ? [.isSelected] : [])
                     }
                 }
             }
@@ -137,8 +141,8 @@ struct ContentView: View {
 
     private func select(_ dish: Dish) {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.4)) {
-            selectedDish = dish
-            camera = .region(MKCoordinateRegion(
+            state.selectedDish = dish
+            state.camera = .region(MKCoordinateRegion(
                 center: dish.coordinate,
                 span: MKCoordinateSpan(latitudeDelta: 0.085, longitudeDelta: 0.085)
             ))
@@ -147,8 +151,8 @@ struct ContentView: View {
 
     private func showValley() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.4)) {
-            selectedDish = nil
-            camera = .region(Dish.valley)
+            state.selectedDish = nil
+            state.camera = .region(Dish.valley)
         }
     }
 }
@@ -228,5 +232,5 @@ private struct Dish: Identifiable {
 }
 
 #Preview {
-    ContentView()
+    ContentView(state: DishMapState())
 }

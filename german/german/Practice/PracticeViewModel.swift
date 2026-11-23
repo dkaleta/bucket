@@ -11,6 +11,7 @@ final class PracticeViewModel {
     var answer = "" { didSet { scheduleSave() } }
     private(set) var sessions: [PracticeSession] = []
     private(set) var preparingTag: LessonTag?
+    private(set) var preparingCustom: CustomLessonRequest?
     private(set) var lessonError: String?
     private(set) var isPreparing = false
     private(set) var preparingCount = 10
@@ -22,7 +23,7 @@ final class PracticeViewModel {
     var needsMainBatch: Bool { sessions.isEmpty || (sessions.count == 1 && sessions[0].kind == .legacy) }
     var mainBatchActionTitle: String { pendingBatch ? "Retry preparing 10 questions" : "Prepare 10 questions" }
     var hasQuestion: Bool { !sessions.isEmpty }
-    var showsGeneration: Bool { preparingMain || preparingTag != nil }
+    var showsGeneration: Bool { preparingMain || preparingTag != nil || preparingCustom != nil }
     private let generator: any LessonGenerating
     private var sessionStore: PracticeSessionStore?
     private var saveTask: Task<Void, Never>?
@@ -48,7 +49,12 @@ final class PracticeViewModel {
         guard let current = sessions.last else { return nil }
         return current.focusTagID.flatMap(LessonTag.find) ?? LessonTag.all.first { $0.title == current.title }
     }
-    var canReloadQuestions: Bool { canStartLesson && (sessions.count == 1 || currentLessonTag != nil) }
+    var canReloadQuestions: Bool { canStartLesson && (sessions.count == 1 || currentLessonTag != nil || sessions.last?.customRequest != nil) }
+    var customLessonDescription: String? { sessions.last?.customRequest?.description }
+    var preferredLessonCount: Int {
+        let count = defaults.integer(forKey: "practice.lessonSize")
+        return [5,10,20].contains(count) ? count : 10
+    }
     private var excludedPrompts: [String] {
         Sentences.all.map(\.english) + recentPrompts + sessions.flatMap { $0.questions.map(\.english) }
     }
@@ -201,6 +207,7 @@ final class PracticeViewModel {
 
     func retryGeneration() {
         if preparingMain { startMainBatch() }
+        else if let custom = preparingCustom { prepareCustomLesson(custom, replacingCurrent: reloadingLesson) }
         else if let tag = preparingTag { startLesson(tag, replacingCurrent: reloadingLesson) }
     }
 
@@ -248,34 +255,53 @@ final class PracticeViewModel {
     func reloadQuestions() {
         guard canReloadQuestions else { return }
         if sessions.count == 1 { startMainBatch() }
+        else if let custom = sessions.last?.customRequest { prepareCustomLesson(custom, replacingCurrent: true) }
         else if let tag = currentLessonTag { startLesson(tag, replacingCurrent: true) }
     }
 
     func startLesson(_ tag: LessonTag, replacingCurrent: Bool = false) {
         guard canStartLesson || (preparingTag?.id == tag.id && !isPreparing) else { return }
         guard !replacingCurrent || sessions.count > 1 else { return }
-        reloadingLesson = replacingCurrent
         saveProgress()
+        let parent = replacingCurrent ? sessions[sessions.count - 2] : sessions.last!
+        prepareLesson(request: .focused(tag, parent.questions[parent.index]), tag: tag, custom: nil, replacingCurrent: replacingCurrent)
+    }
+
+    func startCustomLesson(_ description: String) {
+        let text = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canStartLesson, !text.isEmpty else { return }
+        let custom = CustomLessonRequest(description: text, source: sentence, learnerAnswer: answer, grade: grade)
+        prepareCustomLesson(custom, replacingCurrent: false)
+    }
+
+    private func prepareCustomLesson(_ custom: CustomLessonRequest, replacingCurrent: Bool) {
+        guard canStartLesson || (preparingCustom != nil && !isPreparing) else { return }
+        guard !replacingCurrent || sessions.count > 1 else { return }
+        saveProgress()
+        prepareLesson(request: .custom(custom), tag: nil, custom: custom, replacingCurrent: replacingCurrent)
+    }
+
+    private func prepareLesson(request: PracticeGenerationRequest, tag: LessonTag?, custom: CustomLessonRequest?, replacingCurrent: Bool) {
+        reloadingLesson = replacingCurrent
         preparingTag = tag
+        preparingCustom = custom
         lessonError = nil
         isPreparing = true
         let id = UUID()
         generationID = id
-        let parent = replacingCurrent ? sessions[sessions.count - 2] : sessions.last!
-        let source = parent.questions[parent.index]
         let excluded = excludedPrompts
-        let preference = defaults.integer(forKey: "practice.lessonSize")
-        let count = replacingCurrent ? sessions.last!.questions.count : ([5,10,20].contains(preference) ? preference : 10)
+        let count = replacingCurrent ? sessions.last!.questions.count : preferredLessonCount
         preparingCount = count
         generationTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let key = try credentials.read(.openAI)
                 guard !key.isEmpty else { throw PracticeError(message: "Add your OpenAI API key in Settings to prepare a lesson.") }
-                let questions = try await generator.generate(request: .focused(tag, source), count: count, excluding: excluded, apiKey: key)
+                let questions = try await generator.generate(request: request, count: count, excluding: excluded, apiKey: key)
                 guard generationID == id, !Task.isCancelled else { return }
                 try OpenAILessonGenerator.validate(questions, count: count, excluding: excluded)
-                let next = PracticeSession(title: tag.title, questions: questions, kind: .focused, focusTagID: tag.id)
+                let next = PracticeSession(title: tag?.title ?? "Custom practice", questions: questions,
+                                           kind: .focused, focusTagID: tag?.id, customRequest: custom)
                 var updated = sessions
                 if replacingCurrent { updated[updated.count - 1] = next }
                 else { updated.append(next) }
@@ -286,6 +312,7 @@ final class PracticeViewModel {
                 recentPrompts = history
                 restoreCurrent()
                 preparingTag = nil
+                preparingCustom = nil
                 isPreparing = false
                 saveProgress()
             } catch {
@@ -301,6 +328,7 @@ final class PracticeViewModel {
         generationTask?.cancel()
         generationTask = nil
         preparingTag = nil
+        preparingCustom = nil
         reloadingLesson = false
         preparingMain = false
         isPreparing = false

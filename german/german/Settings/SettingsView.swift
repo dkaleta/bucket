@@ -78,7 +78,7 @@ struct SettingsView: View {
                     Text("10").tag(10)
                     Text("20").tag(20)
                 }
-                Text("Main practice always uses 10 questions. This setting applies to new tagged lessons; difficulty matches the source question.")
+                Text("Main practice always uses 10 questions. This setting applies to new tag and custom lessons. Custom descriptions can also specify a difficulty.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

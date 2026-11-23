@@ -55,7 +55,7 @@ import Foundation
         func generate(request: PracticeGenerationRequest, count: Int, excluding: [String], apiKey: String) async throws -> [PracticeSentence] {
         let tag: LessonTag
         switch request {
-        case .mixedBeginner: tag = LessonTag.find("when")!
+        case .mixedBeginner, .custom: tag = LessonTag.find("when")!
         case .focused(let focus, _): tag = focus
         }
             batch += 1

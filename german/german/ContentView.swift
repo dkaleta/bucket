@@ -2,6 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var tutorContext: TutorContext?
+    @State private var showsCustomLesson = false
+    @State private var customLessonDescription = ""
+    @State private var submittedLessonDescription: String?
+    @FocusState private var customLessonFocused: Bool
     @State private var speech: AnswerSpeech = {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--lesson-preview") { return LessonPreview.speech() }
@@ -50,6 +54,10 @@ struct ContentView: View {
                                 .disabled(!model.canStartLesson)
                         }
                     }
+                    if let description = model.customLessonDescription {
+                        Text(description).font(.callout).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).textSelection(.enabled)
+                    }
 
                     VStack(spacing: 0) {
                         Text("TRANSLATE INTO GERMAN")
@@ -69,6 +77,16 @@ struct ContentView: View {
                                 .accessibilityLabel("Start lesson: \(tag.title)")
                                 .disabled(!model.canStartLesson)
                         }
+                        Button {
+                            speech.stop()
+                            showsCustomLesson = true
+                        } label: {
+                            Label("Custom lesson…", systemImage: "square.and.pencil")
+                        }
+                        .buttonStyle(.bordered)
+                        .clipShape(Capsule())
+                        .disabled(!model.canStartLesson)
+                        .help("Describe what to practice, using this question as context")
                     }
 
                     if model.phase != .connecting {
@@ -177,7 +195,7 @@ struct ContentView: View {
             VStack(spacing: 20) {
                 if model.isPreparing {
                     ProgressView()
-                    Text(model.preparingMain ? "Preparing 10 fresh practice questions…" : "Preparing \(model.preparingCount) questions about \(model.preparingTag?.title.lowercased() ?? "this topic")…")
+                    Text(model.preparingMain ? "Preparing 10 fresh practice questions…" : model.preparingCustom != nil ? "Preparing \(model.preparingCount) questions for your custom lesson…" : "Preparing \(model.preparingCount) questions about \(model.preparingTag?.title.lowercased() ?? "this topic")…")
                 } else {
                     Text(model.lessonError ?? "Could not prepare the lesson.")
                     Button("Retry", action: model.retryGeneration)
@@ -191,6 +209,47 @@ struct ContentView: View {
         }
         .sheet(item: $tutorContext) { context in
             TutorConversationView(context: context)
+        }
+        .sheet(isPresented: $showsCustomLesson, onDismiss: {
+            // Wait until the composer closes before presenting generation progress.
+            if let description = submittedLessonDescription {
+                submittedLessonDescription = nil
+                model.startCustomLesson(description)
+            }
+        }) {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("What would you like to practice?").font(.title2.bold())
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Current question").font(.caption).foregroundStyle(.secondary)
+                    Text(model.sentence.english).font(.headline)
+                    Text("Your question, answer, and any feedback are included, so you can refer to “this example”.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                TextField("For example: More questions like this about zu, zum, and zur", text: $customLessonDescription, axis: .vertical)
+                    .lineLimit(3...7)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($customLessonFocused)
+                    .accessibilityLabel("Describe your custom lesson")
+                Text("After this set, you’ll return to your current question.")
+                    .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Button("Cancel") { showsCustomLesson = false }
+                        .keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Create \(model.preferredLessonCount) questions") {
+                        submittedLessonDescription = customLessonDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                        showsCustomLesson = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(customLessonDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(24).frame(width: 480)
+            .onAppear { customLessonFocused = true }
         }
         .task { model.prepareInitialBatchIfNeeded() }
         .onChange(of: model.sessions.last?.id) { _, _ in speech.reset() }

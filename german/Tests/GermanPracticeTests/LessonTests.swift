@@ -13,6 +13,7 @@ import Testing
 }
 @MainActor private final class LessonGenerator: LessonGenerating {
     var counts: [Int] = []
+    var requests: [PracticeGenerationRequest] = []
     var exclusions: [[String]] = []
     var repeated: [PracticeSentence]?
     var failure = false
@@ -21,10 +22,11 @@ import Testing
     func generate(request: PracticeGenerationRequest, count: Int, excluding: [String], apiKey: String) async throws -> [PracticeSentence] {
         let tag: LessonTag
         switch request {
-        case .mixedBeginner: tag = LessonTag.find("when")!
+        case .mixedBeginner, .custom: tag = LessonTag.find("when")!
         case .focused(let focus, _): tag = focus
         }
         counts.append(count)
+        requests.append(request)
         exclusions.append(excluding)
         if failure { throw PracticeError(message: "Offline") }
         if let repeated { return repeated }
@@ -44,6 +46,98 @@ private func questions(_ count: Int = 5, tag: String = "when", offset: Int = 0) 
         if defaults.object(forKey: "practice.sentenceIndex") == nil { defaults.set(0, forKey: "practice.sentenceIndex") }
         return PracticeViewModel(credentials: LessonKeys(), grader: LessonGrader(), defaults: defaults,
                           generator: generator, sessionStore: store, makeTranscriber: { fatalError("No recording in lesson tests") })
+    }
+    @Test func customLessonKeepsOriginAcrossReloadRestoreAndReturn() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + "/session.json")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = PracticeSessionStore(url: url)
+        let generator = LessonGenerator()
+        let vm = model(generator, defaults: defaults, store: store)
+        vm.startMainBatch()
+        await settle { !vm.isPreparing }
+        let originalID = vm.sessionID
+        let originalSentence = vm.sentence
+        vm.answer = "zum Bahnhof"
+        vm.check()
+        await settle { vm.phase == .graded }
+        vm.startCustomLesson("  More questions like this about zu/zum  ")
+        await settle { !vm.isPreparing }
+        guard case .custom(let custom) = generator.requests.last! else { Issue.record("Expected custom generation"); return }
+        #expect(custom.description == "More questions like this about zu/zum")
+        #expect(custom.source.english == originalSentence.english)
+        #expect(custom.source.german == originalSentence.german)
+        #expect(custom.learnerAnswer == "zum Bahnhof")
+        #expect(custom.grade?.score == 4)
+        #expect(vm.progress == "1 / 10")
+        #expect(vm.canReloadQuestions)
+        vm.answer = "custom draft"
+        vm.saveProgress()
+        let restored = model(generator, defaults: defaults, store: store)
+        #expect(restored.answer == "custom draft")
+        #expect(restored.customLessonDescription == custom.description)
+        restored.reloadQuestions()
+        await settle { !restored.isPreparing }
+        guard case .custom(let reloaded) = generator.requests.last! else { Issue.record("Reload lost custom request"); return }
+        #expect(reloaded.source.english == originalSentence.english)
+        #expect(reloaded.learnerAnswer == "zum Bahnhof")
+        #expect(reloaded.description == custom.description)
+        #expect(restored.sessions.count == 2)
+        for _ in 0..<10 {
+            restored.answer = "answer"
+            restored.check()
+            await settle { restored.phase == .graded }
+            restored.next()
+        }
+        #expect(restored.sessionID == originalID)
+        #expect(restored.answer == "zum Bahnhof")
+        #expect(restored.grade?.score == 4)
+        #expect(restored.phase == .graded)
+    }
+
+    @Test func customLessonFailureRetryAndCancellationPreserveCurrentWork() async {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let generator = LessonGenerator()
+        let vm = model(generator, defaults: defaults)
+        vm.answer = "unfinished answer"
+        vm.startCustomLesson(" \n ")
+        #expect(!vm.showsGeneration)
+        generator.failure = true
+        vm.startCustomLesson("Explain my mistake through more examples")
+        await settle { vm.lessonError != nil }
+        #expect(vm.answer == "unfinished answer")
+        #expect(vm.sessions.count == 1)
+        #expect(vm.preparingCustom?.source.english == vm.sentence.english)
+        generator.failure = false
+        generator.suspended = true
+        vm.retryGeneration()
+        await settle { generator.waiter != nil }
+        #expect(generator.counts == [10,10])
+        vm.cancelLesson()
+        generator.waiter?.resume(returning: questions(10))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(!vm.showsGeneration)
+        #expect(vm.preparingCustom == nil)
+        #expect(vm.answer == "unfinished answer")
+        #expect(vm.sessions.count == 1)
+    }
+
+    @Test func customGenerationPayloadIncludesDescriptionExerciseAndFeedback() throws {
+        let source = PracticeSentence(id: 1, english: "I am going to the station.", german: "Ich gehe zum Bahnhof.", tagIDs: ["travel", "present"])
+        let custom = CustomLessonRequest(description: "More like this about zu/zum", source: source,
+            learnerAnswer: "Ich gehe zu Bahnhof", grade: Grade(score: 3, germanAnswer: source.german, tip: "Use zum."))
+        let data = try OpenAILessonGenerator.body(tag: nil, source: source, count: 10, excluding: [], custom: custom)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let inputText = try #require(body["input"] as? String)
+        let input = try #require(JSONSerialization.jsonObject(with: Data(inputText.utf8)) as? [String: Any])
+        #expect(input["mode"] as? String == "custom")
+        let context = try #require(input["customLesson"] as? [String: Any])
+        #expect(context["description"] as? String == custom.description)
+        #expect(context["learnerAnswer"] as? String == custom.learnerAnswer)
+        #expect((context["grade"] as? [String: Any])?["tip"] as? String == "Use zum.")
+        #expect((context["source"] as? [String: Any])?["german"] as? String == source.german)
+        #expect((input["exclude"] as? [String])?.contains(source.english) == true)
+        #expect(input["count"] as? Int == 10)
     }
     @Test func continuousMainBatchesAndRestore() async throws {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
