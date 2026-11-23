@@ -1,16 +1,22 @@
 import Foundation
-import ImageIO
 import SwiftData
-import UniformTypeIdentifiers
+import Observation
 
 @MainActor @Observable
 final class PantryIcons {
-    static let shared = PantryIcons()
+    private let container: ModelContainer
+    private let images: any ImageGenerating
+
+    init(container: ModelContainer, images: any ImageGenerating) {
+        self.container = container
+        self.images = images
+    }
+
     private(set) var currentName: String?
     private(set) var errorMessage: String?
     private var running = false
 
-    func start(in container: ModelContainer) {
+    func start() {
         guard !running else { return }
         running = true
         errorMessage = nil
@@ -26,7 +32,7 @@ final class PantryIcons {
                     let name = row.name
                     let key = row.lookupName
                     currentName = name
-                    let png = try await Self.generate(name: name)
+                    let png = try await generate(name: name)
                     // A scan can rename or remove the ingredient while the request is running.
                     let context = container.mainContext
                     let match = FetchDescriptor<PantryIngredient>(predicate: #Predicate { $0.lookupName == key })
@@ -42,7 +48,7 @@ final class PantryIcons {
         }
     }
 
-    @concurrent static func generate(name: String) async throws -> Data {
+    private func generate(name: String) async throws -> Data {
         let prompt = """
         Create one square cookbook inventory icon representing the ingredient named below.
         Style: naturalistic hand-painted gouache food illustration with a simple strong silhouette,
@@ -53,6 +59,6 @@ final class PantryIcons {
         the canvas. Isolated on transparent background. No lettering, border or emoji glyphs.
         Ingredient name: \(name)
         """
-        return try await KitchenImage.generate(prompt: prompt, transparent: true, maxPixels: 160)
+        return try await images.generate(prompt: prompt, transparent: true, maxPixels: 160)
     }
 }

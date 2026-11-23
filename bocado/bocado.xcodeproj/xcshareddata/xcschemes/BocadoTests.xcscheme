@@ -1,0 +1,19 @@
+<Scheme version="1.7">
+  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+    <BuildActionEntries>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000100000000" BuildableName="bocado.app" BlueprintName="bocado" ReferencedContainer="container:bocado.xcodeproj"/>
+      </BuildActionEntry>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="BC1000000000000000000001" BuildableName="BocadoTests.xctest" BlueprintName="BocadoTests" ReferencedContainer="container:bocado.xcodeproj"/>
+      </BuildActionEntry>
+    </BuildActionEntries>
+  </BuildAction>
+  <TestAction buildConfiguration="Debug">
+    <Testables>
+      <TestableReference skipped="NO">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="BC1000000000000000000001" BuildableName="BocadoTests.xctest" BlueprintName="BocadoTests" ReferencedContainer="container:bocado.xcodeproj"/>
+      </TestableReference>
+    </Testables>
+  </TestAction>
+</Scheme>

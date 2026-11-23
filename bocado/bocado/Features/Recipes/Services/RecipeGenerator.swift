@@ -1,10 +1,17 @@
 import Foundation
 
-nonisolated enum RecipeGenerator {
-    private static let string = ["type": "string"]
-    private static let strings: [String: Any] = ["type": "array", "items": string]
+nonisolated protocol RecipeGenerating: Sendable {
+    func ideas(for foods: [PantryFood], previous: [String]) async throws -> [RecipeIdea]
+    func method(for recipe: RecipeRecord) async throws -> RecipeMethod
+}
 
-    static func ideas(for foods: [PantryFood], previous: [String]) async throws -> [RecipeIdea] {
+nonisolated struct RecipeGenerator: RecipeGenerating {
+    let client: OpenAIClient
+
+    private var string: [String: String] { ["type": "string"] }
+    private var strings: [String: Any] { ["type": "array", "items": string] }
+
+    func ideas(for foods: [PantryFood], previous: [String]) async throws -> [RecipeIdea] {
         struct Menu: Decodable { let recipes: [RecipeIdea] }
         let prompt = """
         Propose exactly three distinct, practical dishes for two people from this home pantry. Prefer zero
@@ -44,10 +51,10 @@ nonisolated enum RecipeGenerator {
                 return recipes
             }
         }
-        throw ScanFailure("The suggestions didn’t fit your pantry. Try another set.")
+        throw KitchenError("The suggestions didn’t fit your pantry. Try another set.")
     }
 
-    static func method(for recipe: RecipeRecord) async throws -> RecipeMethod {
+    func method(for recipe: RecipeRecord) async throws -> RecipeMethod {
         let ingredients = recipe.foods.map(\.name) + recipe.idea.extras
         let prompt = """
         Write the full recipe for two servings for this specific dish: \(recipe.idea.name).
@@ -61,61 +68,25 @@ nonisolated enum RecipeGenerator {
         let method: RecipeMethod = try await generate(prompt, schema: object(["amounts": strings, "steps": strings]))
         guard method.amounts.count == ingredients.count, !method.steps.isEmpty,
               (method.amounts + method.steps).allSatisfy({ !normalized($0).isEmpty }) else {
-            throw ScanFailure("The recipe was incomplete. Try generating the instructions again.")
+            throw KitchenError("The recipe was incomplete. Try generating the instructions again.")
         }
         return method
     }
 
-    private static func normalized(_ text: String) -> String {
+    private func normalized(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    private static func json(_ value: some Encodable) throws -> String {
+    private func json(_ value: some Encodable) throws -> String {
         String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
     }
 
-    private static func object(_ properties: [String: Any]) -> [String: Any] {
+    private func object(_ properties: [String: Any]) -> [String: Any] {
         ["type": "object", "properties": properties, "required": Array(properties.keys), "additionalProperties": false]
     }
 
-    private static func generate<T: Decodable>(_ prompt: String, schema: [String: Any]) async throws -> T {
-        guard let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty else {
-            throw ScanFailure("Run Bocado from Xcode with OPENAI_API_KEY to generate recipes.")
-        }
-        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 90
-        request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": "gpt-4.1-mini", "store": false,
-            "messages": [["role": "user", "content": prompt]],
-            "response_format": ["type": "json_schema", "json_schema": ["name": "recipe", "strict": true, "schema": schema]]
-        ])
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else {
-            switch status {
-            case 401, 403: throw ScanFailure("Check the OpenAI API key and model access.")
-            case 429: throw ScanFailure("OpenAI reached a usage limit. Try again later.")
-            default: throw ScanFailure("OpenAI couldn’t prepare the recipe (HTTP \(status)).")
-            }
-        }
-        let decoder = JSONDecoder()
-        let completion = try decoder.decode(Completion.self, from: data)
-        guard let choice = completion.choices.first, choice.finish_reason == "stop",
-              let text = choice.message.content else {
-            throw ScanFailure("OpenAI didn’t finish the recipe. Try again.")
-        }
-        return try decoder.decode(T.self, from: Data(text.utf8))
-    }
-
-    private struct Completion: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable { let content: String? }
-            let message: Message
-            let finish_reason: String
-        }
-        let choices: [Choice]
+    private func generate<T: Decodable>(_ prompt: String, schema: [String: Any]) async throws -> T {
+        try await client.completion(content: prompt, schema: schema, name: "recipe", timeout: 90,
+                                    incomplete: "OpenAI didn’t finish the recipe. Try again.")
     }
 }

@@ -1,36 +1,19 @@
+import FactoryKit
 import ImageIO
 import SwiftData
 import SwiftUI
 
-enum PantryFilter: Equatable {
-    case all
-    case useSoon
-    case area(PantryArea)
-}
-
 struct PantryView: View {
-    @Binding var filter: PantryFilter
+    @Bindable var model: PantryViewModel
+    let makeScan: (PantryIngredient?) -> PantryScanViewModel
 
     @Query(sort: \PantryIngredient.name) private var ingredients: [PantryIngredient]
-    @State private var searchText = ""
     @FocusState private var searchFocused: Bool
     @State private var scanning = false
     @State private var sourceItem: PantryIngredient?
-    @Environment(\.modelContext) private var context
 
     private var useSoonCount: Int {
         ingredients.filter(\.useSoon).count
-    }
-
-    private var query: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private var filteredIngredients: [PantryIngredient] {
-        let scoped: [PantryIngredient] = switch filter {
-        case .all: ingredients
-        case .useSoon: ingredients.filter(\.useSoon)
-        case .area(let area): ingredients.filter { $0.area == area }
-        }
-        return query.isEmpty ? scoped : scoped.filter { $0.name.localizedStandardContains(query) }
     }
 
     var body: some View {
@@ -61,16 +44,16 @@ struct PantryView: View {
                     if useSoonCount > 0 {
                         useSoonButton.padding(.horizontal, 24)
                     }
-                    if let name = PantryIcons.shared.currentName {
+                    if let name = model.icons.currentName {
                         HStack {
                             ProgressView().controlSize(.small)
                             Text("Drawing icon for \(name)…").font(.footnote)
                         }
                         .padding(.horizontal, 24)
-                    } else if let error = PantryIcons.shared.errorMessage {
+                    } else if let error = model.icons.errorMessage {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(error).font(.footnote)
-                            Button("Retry pantry icons") { PantryIcons.shared.start(in: context.container) }
+                            Button("Retry pantry icons") { model.icons.start() }
                         }
                         .padding(.horizontal, 24)
                     }
@@ -78,9 +61,9 @@ struct PantryView: View {
                     filterBar
                 }
 
-                let matches = filteredIngredients
-                if !ingredients.isEmpty && matches.isEmpty && !query.isEmpty {
-                    ContentUnavailableView.search(text: query)
+                let matches = model.filteredIngredients(ingredients)
+                if !ingredients.isEmpty && matches.isEmpty && !model.query.isEmpty {
+                    ContentUnavailableView.search(text: model.query)
                 }
                 VStack(spacing: 22) {
                     ForEach(PantryArea.allCases) { area in
@@ -96,17 +79,19 @@ struct PantryView: View {
             .frame(maxWidth: 680)
             .frame(maxWidth: .infinity)
         }
+        .alert("Couldn’t update your pantry", isPresented: Binding(
+            get: { model.error != nil }, set: { if !$0 { model.error = nil } }
+        )) {
+            Button("OK") { model.error = nil }
+        } message: {
+            Text(model.error ?? "")
+        }
         .sheet(item: $sourceItem) { ingredient in
-            PantryScanView(replacing: ingredient, didSave: showAll)
+            PantryScanView(model: makeScan(ingredient), didSave: model.resetFilters)
         }
         .sheet(isPresented: $scanning) {
-            PantryScanView(didSave: showAll)
+            PantryScanView(model: makeScan(nil), didSave: model.resetFilters)
         }
-    }
-
-    private func showAll() {
-        searchText = ""
-        filter = .all
     }
 
     private var searchField: some View {
@@ -114,16 +99,16 @@ struct PantryView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(KitchenTheme.muted)
                 .accessibilityHidden(true)
-            TextField("Search ingredients", text: $searchText)
+            TextField("Search ingredients", text: $model.searchText)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .submitLabel(.search)
                 .onSubmit { searchFocused = false }
                 .autocorrectionDisabled()
                 .accessibilityIdentifier("pantry-search")
-            if !searchText.isEmpty {
+            if !model.searchText.isEmpty {
                 Button {
-                    searchText = ""
+                    model.searchText = ""
                     searchFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -147,7 +132,7 @@ struct PantryView: View {
 
     private var useSoonButton: some View {
         Button {
-            filter = filter == .useSoon ? .all : .useSoon
+            model.filter = model.filter == .useSoon ? .all : .useSoon
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "hourglass")
@@ -165,7 +150,7 @@ struct PantryView: View {
                 }
 
                 Spacer(minLength: 6)
-                Image(systemName: filter == .useSoon ? "checkmark" : "arrow.right")
+                Image(systemName: model.filter == .useSoon ? "checkmark" : "arrow.right")
                     .font(.system(size: 14, weight: .semibold))
                     .accessibilityHidden(true)
             }
@@ -174,13 +159,13 @@ struct PantryView: View {
             .background(KitchenTheme.butter, in: .rect(cornerRadius: 16))
             .overlay {
                 RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(filter == .useSoon ? KitchenTheme.ink : .clear)
+                    .strokeBorder(model.filter == .useSoon ? KitchenTheme.ink : .clear)
             }
             .contentShape(.rect(cornerRadius: 16))
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(filter == .useSoon ? [.isSelected] : [])
-        .accessibilityHint(filter == .useSoon ? "Show all ingredients" : "Show only ingredients to use soon")
+        .accessibilityAddTraits(model.filter == .useSoon ? [.isSelected] : [])
+        .accessibilityHint(model.filter == .useSoon ? "Show all ingredients" : "Show only ingredients to use soon")
     }
 
     private var filterBar: some View {
@@ -198,22 +183,22 @@ struct PantryView: View {
 
     private func filterButton(_ title: String, value: PantryFilter) -> some View {
         Button {
-            filter = value
+            model.filter = value
         } label: {
             Text(title)
                 .font(.footnote.weight(.semibold))
                 .padding(.horizontal, 15)
                 .padding(.vertical, 9)
-                .foregroundStyle(filter == value ? KitchenTheme.cream : KitchenTheme.ink)
-                .background(filter == value ? KitchenTheme.ink : KitchenTheme.cream, in: Capsule())
+                .foregroundStyle(model.filter == value ? KitchenTheme.cream : KitchenTheme.ink)
+                .background(model.filter == value ? KitchenTheme.ink : KitchenTheme.cream, in: Capsule())
                 .overlay {
-                    Capsule().strokeBorder(filter == value ? .clear : KitchenTheme.line)
+                    Capsule().strokeBorder(model.filter == value ? .clear : KitchenTheme.line)
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(filter == value ? [.isSelected] : [])
+        .accessibilityAddTraits(model.filter == value ? [.isSelected] : [])
     }
 
     private func section(_ area: PantryArea, ingredients: [PantryIngredient]) -> some View {
@@ -246,13 +231,10 @@ struct PantryView: View {
                         .contextMenu {
                             Button(ingredient.useSoon ? "Clear use soon" : "Mark use soon",
                                    systemImage: "hourglass") {
-                                ingredient.useSoon.toggle()
-                                if useSoonCount == 0 && filter == .useSoon { filter = .all }
+                                model.toggleUseSoon(ingredient, in: self.ingredients)
                             }
                             Button("Remove from pantry", systemImage: "trash", role: .destructive) {
-                                ingredient.releaseSource(in: context)
-                                context.delete(ingredient)
-                                filter = .all
+                                model.remove(ingredient)
                             }
                         }
                 }
@@ -307,4 +289,32 @@ private struct IngredientRow: View {
         .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
     }
+}
+
+#Preview("Pantry") {
+    let dependencies: AppContainer = {
+        let storage = try! ModelContainer(for: PantryIngredient.self,
+                                          configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let samples: [ScannedIngredient] = [
+            .init(name: "Spinach", quantity: "1 bag", area: .produce, emoji: "🥬", x: 0.5, y: 0.5),
+            .init(name: "Eggs", quantity: "6", area: .fridge, emoji: "🥚", x: 0.5, y: 0.5),
+            .init(name: "Paprika", quantity: "1 jar", area: .cupboard, emoji: "🌶️", x: 0.5, y: 0.5)
+        ]
+        for sample in samples {
+            let ingredient = PantryIngredient(sample)
+            ingredient.useSoon = sample.area == .produce
+            storage.mainContext.insert(ingredient)
+        }
+        try! storage.mainContext.save()
+        let container = AppContainer(storage: storage)
+        container.openAI.register { OpenAIClient(session: .shared, apiKey: nil) }
+        return container
+    }()
+
+    PantryView(model: dependencies.pantryViewModel(), makeScan: { dependencies.scanViewModel($0) })
+        .modelContainer(dependencies.storage)
+        .foregroundStyle(KitchenTheme.ink)
+        .tint(KitchenTheme.ink)
+        .background(KitchenTheme.paper)
+        .preferredColorScheme(.light)
 }

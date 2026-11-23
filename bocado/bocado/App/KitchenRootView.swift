@@ -1,18 +1,26 @@
+import FactoryKit
 import SwiftData
 import SwiftUI
 #if os(iOS)
 import UIKit
 #endif
 
-struct KitchenPrototypeView: View {
+struct KitchenRootView: View {
     @State private var tab: KitchenTab = .recipes
-    @State private var recipeID: KitchenRecipe.ID?
-    @State private var openRecipe: KitchenRecipe?
-    @State private var pantryFilter: PantryFilter = .all
+    @State private var recipeID: RecipeDetailViewModel.ID?
+    @State private var openRecipe: RecipeDetailViewModel?
+    private let dependencies: AppContainer
+    @State private var pantry: PantryViewModel
+    private let recipes: RecipesViewModel
 
     @State private var columns: NavigationSplitViewVisibility = .all
-    @State private var mapState = DishMapState()
-    @Environment(\.modelContext) private var context
+    @State private var mapState = DishMapViewModel()
+
+    init(dependencies: AppContainer) {
+        self.dependencies = dependencies
+        _pantry = State(initialValue: dependencies.pantryViewModel())
+        recipes = dependencies.recipesViewModel()
+    }
 
     var body: some View {
         Group {
@@ -31,10 +39,10 @@ struct KitchenPrototypeView: View {
         .foregroundStyle(KitchenTheme.ink)
         .tint(KitchenTheme.ink)
         .sheet(item: $openRecipe) { recipe in
-            KitchenRecipeDetail(recipe: recipe)
+            RecipeDetailView(recipe: recipe)
         }
         .preferredColorScheme(.light)
-        .task { PantryIcons.shared.start(in: context.container) }
+        .task { pantry.icons.start() }
     }
 
     private var tabs: some View {
@@ -82,18 +90,17 @@ struct KitchenPrototypeView: View {
         case .recipes:
             GeometryReader { geometry in
                 RecipeCarousel(width: min(geometry.size.width, 760), recipeID: $recipeID,
-                               isActive: tab == .recipes, openPantry: { tab = .pantry }) {
-                    openRecipe = $0
-                }
+                               isActive: tab == .recipes, openPantry: { tab = .pantry },
+                               openRecipe: { openRecipe = $0 }, shelf: recipes)
             }
             .safeAreaInset(edge: .top, spacing: 0) { phoneHeader }
             .background(KitchenTheme.paper)
         case .pantry:
-            PantryView(filter: $pantryFilter)
+            PantryView(model: pantry, makeScan: { dependencies.scanViewModel($0) })
                 .safeAreaInset(edge: .top, spacing: 0) { phoneHeader }
                 .background(KitchenTheme.paper)
         case .map:
-            ContentView(state: mapState)
+            DishMapView(state: mapState)
         }
     }
 
@@ -145,38 +152,8 @@ private enum KitchenTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum KitchenTheme {
-    static let paper = Color(red: 0.97, green: 0.96, blue: 0.93)
-    static let cream = Color(red: 1, green: 0.993, blue: 0.972)
-    static let ink = Color(red: 0.15, green: 0.22, blue: 0.16)
-    static let muted = Color(red: 0.34, green: 0.38, blue: 0.32)
-    static let sage = Color(red: 0.89, green: 0.91, blue: 0.85)
-    static let butter = Color(red: 0.97, green: 0.92, blue: 0.76)
-    static let line = Color(red: 0.89, green: 0.87, blue: 0.82)
-}
-
-struct KitchenHeading: View {
-    let title: Text
-    let subtitle: String
-
-    @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 47
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            title
-                .font(.system(size: titleSize, weight: .medium, design: .serif))
-                .tracking(-1.9)
-                .accessibilityAddTraits(.isHeader)
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(KitchenTheme.muted)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 #Preview {
-    KitchenPrototypeView()
-        .modelContainer(for: PantryIngredient.self, inMemory: true)
+    let storage = try! ModelContainer(for: PantryIngredient.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    KitchenRootView(dependencies: AppContainer(storage: storage))
+        .modelContainer(storage)
 }

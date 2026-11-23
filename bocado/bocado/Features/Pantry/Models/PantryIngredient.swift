@@ -1,5 +1,5 @@
 import SwiftData
-import SwiftUI
+import Foundation
 
 enum PantryArea: String, Codable, CaseIterable, Identifiable {
     case produce = "Produce"
