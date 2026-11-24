@@ -9,6 +9,12 @@ struct PantryRepository {
         try saveChanges()
     }
 
+    func update(_ ingredient: PantryIngredient, quantity: String, area: PantryArea) throws {
+        ingredient.quantity = quantity.trimmingCharacters(in: .whitespacesAndNewlines)
+        ingredient.storageArea = area.rawValue
+        try saveChanges()
+    }
+
     func remove(_ ingredient: PantryIngredient) throws {
         let context = container.mainContext
         ingredient.releaseSource(in: context)

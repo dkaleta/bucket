@@ -17,7 +17,7 @@ struct IngredientSourceImage: View {
                     let y = point.y * size.height
                     ZStack(alignment: .topLeading) {
                         Circle()
-                            .fill(KitchenTheme.ink.opacity(0.35))
+                            .fill(KitchenTheme.accent.opacity(0.45))
                             .strokeBorder(.white, lineWidth: 2)
                             .frame(width: 24, height: 24)
                             .overlay { Circle().fill(.white).frame(width: 5, height: 5) }
@@ -30,7 +30,7 @@ struct IngredientSourceImage: View {
                                 .lineLimit(1)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(KitchenTheme.ink, in: Capsule())
+                                .background(KitchenTheme.text, in: Capsule())
                                 .frame(width: min(size.width, 150))
                                 .position(x: min(max(x, min(size.width, 150) / 2), size.width - min(size.width, 150) / 2),
                                           y: y > 42 ? y - 26 : min(y + 26, size.height - 12))
@@ -45,7 +45,7 @@ struct IngredientSourceImage: View {
                     }
                 }
             }
-            .clipShape(.rect(cornerRadius: 12))
+            .clipShape(.rect(cornerRadius: 16))
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("ingredient-source-photo")
             .accessibilityLabel("Source photo, marked item: \(name)")

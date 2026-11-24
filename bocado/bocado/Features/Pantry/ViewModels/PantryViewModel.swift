@@ -43,6 +43,11 @@ final class PantryViewModel {
         } catch { self.error = error.localizedDescription }
     }
 
+    func update(_ ingredient: PantryIngredient, quantity: String, area: PantryArea) {
+        do { try repository.update(ingredient, quantity: quantity, area: area) }
+        catch { self.error = error.localizedDescription }
+    }
+
     func remove(_ ingredient: PantryIngredient) {
         do {
             try repository.remove(ingredient)

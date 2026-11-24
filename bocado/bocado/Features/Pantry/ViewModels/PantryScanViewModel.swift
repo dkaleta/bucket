@@ -86,7 +86,8 @@ final class PantryScanViewModel {
         if working { return "Reading ingredients…" }
         if replacing != nil { return review == nil ? "Rescan this item" : "Save correction" }
         if review != nil { return "Save to pantry (\(selectedItems.count))" }
-        return "Process photos"
+        if photos.isEmpty { return "Find ingredients" }
+        return photos.count == 1 ? "Find ingredients in 1 photo" : "Find ingredients in \(photos.count) photos"
     }
 
     func save() -> Bool {

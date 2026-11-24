@@ -22,6 +22,9 @@ struct PantryView: View {
                 .navigationSubtitle(ingredients.isEmpty ? "" : "\(ingredients.count) ingredients")
                 .searchable(text: $model.searchText, prompt: "Search ingredients")
                 .autocorrectionDisabled()
+                .navigationDestination(item: $sourceItem) { ingredient in
+                    IngredientDetailView(ingredient: ingredient, model: model, makeScan: makeScan)
+                }
                 .toolbar {
                     if !ingredients.isEmpty {
                         ToolbarItem(placement: .primaryAction) {
@@ -40,9 +43,6 @@ struct PantryView: View {
             Button("OK") { model.error = nil }
         } message: {
             Text(model.error ?? "")
-        }
-        .sheet(item: $sourceItem) { ingredient in
-            PantryScanView(model: makeScan(ingredient), didSave: model.resetFilters)
         }
         .sheet(isPresented: $scanning) {
             PantryScanView(model: makeScan(nil), didSave: model.resetFilters)
@@ -200,7 +200,7 @@ struct PantryView: View {
                         IngredientRow(ingredient: ingredient).contentShape(Rectangle())
                     }
                         .buttonStyle(.plain)
-                        .accessibilityHint("View ingredient source or rescan this item")
+                        .accessibilityHint("Shows ingredient details")
                         .contextMenu {
                             Button(ingredient.useSoon ? "Clear use soon" : "Mark use soon",
                                    systemImage: "hourglass") {
